@@ -1,33 +1,33 @@
-Control Groups
+Nhóm điều khiển (Control Groups)
 ================================================================================
 
-Introduction
+Giới thiệu
 --------------------------------------------------------------------------------
 
-This is the first part of the new chapter of the [linux insides](http://0xax.gitbooks.io/linux-insides/content/) book and as you may guess by part's name - this part will cover [control groups](https://en.wikipedia.org/wiki/Cgroups) or `cgroups` mechanism in the Linux kernel.
+Đây là phần đầu tiên trong chương 2 của cuốn [linux insides](http://0xax.gitbooks.io/linux-insides/content/), và như bạn cũng thấy từ cái tên của nó, phần này sẽ nói về [control groups](https://en.wikipedia.org/wiki/Cgroups) hay cơ chế `cgroups` bên trong nhân Linux.
 
-`Cgroups` are special mechanism provided by the Linux kernel which allows us to allocate kind of `resources` like processor time, number of processes per group, amount of memory per control group or combination of such resources for a process or set of processes. `Cgroups` are organized hierarchically and here this mechanism is similar to usual processes as they are hierarchical too and child `cgroups` inherit set of certain parameters from their parents. But actually they are not the same. The main differences between `cgroups` and normal processes that many different hierarchies of control groups may exist simultaneously in one time while normal process three is always single. This was not a casual step because each control group hierarchy is attached to set of control group `subsystems`.
+`Cgroups` là cơ chế đặc biệt được cung cấp bởi nhân Linux cho phép chúng ta cấp phát những thứ gọi là `tài nguyên` (`resources`) như là thời gian sử dụng bộ xử lý (processor time), số lượng tiếng trình trong nhóm (number of processes per group), ượng bộ nhớ RAM trên mỗi nhóm (amount of memory per control group) hoặc kết hợp các tài nguyên như trên cho một tiến trình, nhóm tiến trình. `Cgroups` được tổ chức dạng phân lớp và ở đây, nó tương tự cơ chế với tiến trình thông thường (usual processes) và `cgroups` con kế thừa tập tham số từ cha của chúng. Nhưng thực sự có một chút khác biệt ở đây. Sự khác biệt chủ yếu giữa `cgroups` and tiến trình thông thường là rất nhiều phân lớp khác nhau của `cgroup` có thể tồn tại đồng thời. Trong khi cây tiến trình thì chỉ có 1 mà thôi. Đây không phải là điều tự nó thế, mà bởi vì mỗi nhóm điều khiển (cgroup) được gắn vào một tập của các cgroup (set of control group), hay `hệ thống con` dành cho nhóm điều khiển (control group `subsystems`).
 
-One `control group subsystem` represents one kind of resources like a processor time or number of [pids](https://en.wikipedia.org/wiki/Process_identifier) or in other words number of processes for a `control group`. Linux kernel provides support for following twelve `control group subsystems`:
+Một `control group subsystem` biểu diễn một loại tài nguyên như thời gian sử dụng bộ xử lý (processor time) hoặc một số lượng các [pids](https://en.wikipedia.org/wiki/Process_identifier) hay nói cách khác là số lượng tiến trình cho một `control group`. Nhân Linux kernel cung cấp đến 12 loại hệ thống con nhóm điều khiển dưới đây (`control group subsystems`)
 
-* `cpuset` - assigns individual processor(s) and memory nodes to task(s) in a group;
-* `cpu` - uses the scheduler to provide cgroup tasks access to the processor resources;
-* `cpuacct` - generates reports about processor usage by a group;
-* `io` - sets limit to read/write from/to [block devices](https://en.wikipedia.org/wiki/Device_file);
-* `memory` - sets limit on memory usage by a task(s) from a group;
-* `devices` - allows access to devices by a task(s) from a group;
-* `freezer` - allows to suspend/resume for a task(s) from a group;
-* `net_cls` - allows to mark network packets from task(s) from a group;
-* `net_prio` - provides a way to dynamically set the priority of network traffic per network interface for a group;
-* `perf_event` - provides access to [perf events](https://en.wikipedia.org/wiki/Perf_(Linux)) to a group;
-* `hugetlb` - activates support for [huge pages](https://www.kernel.org/doc/Documentation/vm/hugetlbpage.txt) for a group;
-* `pid` - sets limit to number of processes in a group.
+* `cpuset` - gán processor(một hoặc nhiều) và node bộ nhớ (memory nodes) cho task (1 hoặc nhiều) trong 1 nhóm;
+* `cpu` - sử dụng bộ lập lịch đẻ cung cấp truy cập task của nhóm đến tài nguyên xử lý (processor resource);
+* `cpuacct` - sinh một báo cáo về việc sử dụng processor cho 1 nhóm;
+* `io` - thiết lập giới hạn đọc ghi từ/đến [block devices](https://en.wikipedia.org/wiki/Device_file);
+* `memory` - thiết lập giới hạn sử dụng bộ nhớ bởi task(1 hoặc nhiều) trong 1 nhóm;
+* `devices` - cho phép việc truy cập thiết bị từ task(một hoặc nhiều) trong 1 nhóm;
+* `freezer` - cho phép tạm dừng/chạy tiếp cho task (một hoặc nhiều) trong 1 nhóm;
+* `net_cls` - cho phép đánh dấu gói dữ liệu mạng từ task (một hoặc nhiều) trong 1 nhóm;
+* `net_prio` - cung cấp một cách cho phép thiết lập động độ ưu tiên trên mỗi giao thức mạng cho một nhóm;
+* `perf_event` - cung cấp truy cập đến [perf events](https://en.wikipedia.org/wiki/Perf_(Linux)) cho 1 nhóm;
+* `hugetlb` - kích hoạt khả năng hỗ trợ [huge pages](https://www.kernel.org/doc/Documentation/vm/hugetlbpage.txt) cho nhóm;
+* `pid` - thiết lập giới hạn số tiến trình có trong 1 nhóm.
 
-Each of these control group subsystems depends on related configuration option. For example the `cpuset` subsystem should be enabled via `CONFIG_CPUSETS` kernel configuration option, the `io` subsystem via `CONFIG_BLK_CGROUP` kernel configuration option and etc. All of these kernel configuration options may be found in the `General setup → Control Group support` menu:
+Hoạt động của mỗi hệ thống con ở trên phụ thuộc vào tham số cấu hình của nó. Ví dụ hệ thống con `cpuset` được bật thông qua tham số cấu hình nhân `CONFIG_CPUSETS`, hệ thống con `io` cũng được bật thông qua tham số cấu hình nhân `CONFIG_BLK_CGROUP` hay những hệ thống con tương tự. Tất cả các cấu hình nhân này có thể thấy ở phần menu `General setup → Control Group support` khi build nhân:
 
 ![menuconfig](http://oi66.tinypic.com/2rc2a9e.jpg)
 
-You may see enabled control groups on your computer via [proc](https://en.wikipedia.org/wiki/Procfs) filesystem:
+Bạn có thể thấy các nhóm điều khiển thông qua hệ thống file [proc](https://en.wikipedia.org/wiki/Procfs):
 
 ```
 $ cat /proc/cgroups 
@@ -46,7 +46,7 @@ hugetlb	10	1	1
 pids	5	69	1
 ```
 
-or via [sysfs](https://en.wikipedia.org/wiki/Sysfs):
+hoặc thông qua hệ thống file sysfs [sysfs](https://en.wikipedia.org/wiki/Sysfs):
 
 ```
 $ ls -l /sys/fs/cgroup/
@@ -68,13 +68,13 @@ dr-xr-xr-x 5 root root  0 Dec  2 22:37 pids
 dr-xr-xr-x 5 root root  0 Dec  2 22:37 systemd
 ```
 
-As you already may guess that `control groups` mechanism is not such mechanism which was invented only directly to the needs of the Linux kernel, but mostly for userspace needs. To use a `control group`, we should create it at first. We may create a `cgroup` via two ways.
+Bạn có thể đã đoán ra rằng cơ chế `control groups` không phải là cơ chế liên quan trực tiếp đến yêu cầu từ phía nhân Linux, mà nó được dùng hầu hết cho phía user-space. Để sử dụng `control group`, chúng ta phải tạo nó. Việc tạo `cgroup` được thực hiện thông qua 2 cách sau.
 
-The first way is to create subdirectory in any subsystem from `sys/fs/cgroup` and add a pid of a task to a `tasks` file which will be created automatically right after we will create the subdirectory.
+Các đầu tiên, là tạo một thư mục con trong bất cứ thư mục hệ thống con nào nằm ở `sys/fs/cgroup` và thêm pid (process id) vào file có tên là `tasks`, file này được tạo tự động khi chúng ta tạo thư mục con.
 
-The second way is to create/destroy/manage `cgroups` with utils from `libcgroup` library (`libcgroup-tools` in Fedora).
+Các thứ hai, là nằm trong nhóm chức năng create/destroy/manage `cgroups` được cung cấp thông qua các công cụ từ thư viện `libcgroup` (trong Fedora thư viện này có tên là `libcgroup-tools`).
 
-Let's consider simple example. Following [bash](https://www.gnu.org/software/bash/) script will print a line to `/dev/tty` device which represents control terminal for the current process:
+Nào cùng nhau xem xét một ví dụ. Đoạn script [bash](https://www.gnu.org/software/bash/) dưới đây sẽ ghi một dòng vào thiết bị có đường dẫn `/dev/tty`, chính là thiết bị điều khiển termial (màn hình chạy lệnh) cho tiến trình hiện tại luôn:
 
 ```shell
 #!/bin/bash
@@ -86,7 +86,7 @@ do
 done
 ```
 
-So, if we will run this script we will see following result:
+Vì thế, khi bạn chạy script này, bạn sẽ thấy kết quả như sau:
 
 ```
 $ sudo chmod +x cgroup_test_script.sh
@@ -99,25 +99,25 @@ print line
 ...
 ```
 
-Now let's go to the place where `cgroupfs` is mounted on our computer. As we just saw, this is `/sys/fs/cgroup` directory, but you may mount it everywhere you want.
+Nào, giờ cùng nhau đến xem chỗ mà `cgroupfs` được gắn vào máy tính của bạn. Như bạn đã thấy ở trên, đó là thư mục `/sys/fs/cgroup`, tất nhiên bạn có thể gắn chúng ở bất cứ đâu.
 
 ```
 $ cd /sys/fs/cgroup
 ```
 
-And now let's go to the `devices` subdirectory which represents kind of resouces that allows or denies access to devices by tasks in a `cgroup`:
+Và bây giờ, chúng ta vào xem thư mục con có tên `devices` để xem loại resource nào được phép/không được phép truy cập vào thiết bị bởi các task có trong `cgroup`:
 
 ```
 # cd /devices
 ```
 
-and create `cgroup_test_group` directory there:
+và tạo tiếp thư mục `cgroup_test_group` ở đó:
 
 ```
 # mkdir cgroup_test_group
 ```
 
-After creation of the `cgroup_test_group` directory, following files will be generated there:
+Sau khi tạo thư mục `cgroup_test_group`, các file bên dưới đây sễ thực động được sinh ra:
 
 ```
 /sys/fs/cgroup/devices/cgroup_test_group$ ls -l
@@ -131,20 +131,20 @@ total 0
 -rw-r--r-- 1 root root 0 Dec  3 22:55 tasks
 ```
 
-For this moment we are interested in `tasks` and `devices.deny` files. The first `tasks` files should contain pid(s) of processes which will be attached to the `cgroup_test_group`. The second `devices.deny` file contain list of denied devices. By default a newly created group has no any limits for devices access. To forbid a device (in our case it is `/dev/tty`) we should write to the `devices.deny` following line:
+Ở thời điểm này, chúng ta chỉ quan tâm đến 2 file `tasks` và `devices.deny` mà thôi. Đầu tiên, file `tasks` chứa pid của các tiến trình sẽ được gắn vào group ta mới tạo, tên `cgroup_test_group`. Thứ 2, file `devices.deny` chứa danh sách các thiết bị không được phép truy cập. Mặc định, group mới tạo không có bất cứ giới hạn nào cho việc truy cập thiết bị. Để cấm truy cập một thiết bị (trong trường hợp này giả sử là `/dev/tty`) chúng ta sẽ viết vào file `devices.deny` dòng sau đây:
 
 ```
 # echo "c 5:0 w" > devices.deny
 ```
 
-Let's go step by step throug this line. The first `c` letter represents type of a device. In our case the `/dev/tty` is `char device`. We can verify this from output of `ls` command:
+Trong có vẻ ma thuật, chúng ta sẽ phân tích dòng lệnh này. Chứ `c` đầu tiên sau `echo` biểu diễn loại thiết bị. Vì thiết bị chúng ta đã nói đến `/dev/tty` là `char device` mà nên giá trị ở đó là `c`. Chúng ta có thể kiểm tra bất cứ thiết bị nào bằng lênh phổ biến `ls`:
 
 ```
 ~$ ls -l /dev/tty
 crw-rw-rw- 1 root tty 5, 0 Dec  3 22:48 /dev/tty
 ```
 
-see the first `c` letter in a permissions list. The second part is `5:0` is minor and major numbers of the device. You can see these numbers in the output of `ls` too. And the last `w` letter forbids tasks to write to the specified device. So let's start the `cgroup_test_script.sh` script:
+Bạn thấy chữ `c` đầu tiên trong danh sách quyền đọc/ghi/chạy chứ. Phần thứ 2 ta cũng thấy được là `5:0`, đây chính là số minor và major numbers của thiết bị. Như bạn cũng, nó cũng xuất hiện trong kết quả khi chạy lệnh `ls`. Kí tự cuối cùng `w`, tức là cấm các task thực hiện quyền ghi đến thiết bị. Nào ta thử thực hiện script `cgroup_test_script.sh` sau:
 
 ```
 ~$ ./cgroup_test_script.sh 
@@ -155,13 +155,13 @@ print line
 ...
 ```
 
-and add pid of this process to the `devices/tasks` file of our group:
+giờ thêm pid của tiến trình hiện tại (tức là terminal) vào file `devices/tasks` của group:
 
 ```
 # echo $(pidof -x cgroup_test_script.sh) > /sys/fs/cgroup/devices/cgroup_test_group/tasks
 ```
 
-The result of this action will be as expected:
+Kết quả của hành động này sẽ như sau:
 
 ```
 ~$ ./cgroup_test_script.sh 
@@ -174,7 +174,7 @@ print line
 ./cgroup_test_script.sh: line 5: /dev/tty: Operation not permitted
 ```
 
-Similar situation will be when you will run you [docker](https://en.wikipedia.org/wiki/Docker_(software)) containers for example:
+Điều này được sử dụng trong [docker](https://en.wikipedia.org/wiki/Docker_(software)) containers, ví dụ:
 
 ```
 ~$ docker ps
@@ -190,7 +190,7 @@ fa2d2085cd1c        mariadb:10          "docker-entrypoint..."   12 days ago    
 ...
 ```
 
-So, during startup of a `docker` container, `docker` will create a `cgroup` for processes in this container:
+Vì thế, trong suốt quá trình khởi động của một `docker`, `docker` sẽ tạo một `cgroup` cho các tiến trình trong container đó:
 
 ```
 $ docker exec -it mysql-work /bin/bash
@@ -198,7 +198,7 @@ $ top
  PID USER      PR  NI    VIRT    RES    SHR S  %CPU %MEM     TIME+ COMMAND                                                                                   1 mysql     20   0  963996 101268  15744 S   0.0  0.6   0:00.46 mysqld                                                                                  71 root      20   0   20248   3028   2732 S   0.0  0.0   0:00.01 bash                                                                                    77 root      20   0   21948   2424   2056 R   0.0  0.0   0:00.00 top                                                                                  
 ```
 
-And we may see this `cgroup` on host machine:
+Bạn có thể thấy các `cgroup` này trên máy host:
 
 ```C
 $ systemd-cgls
@@ -211,7 +211,7 @@ Control group /:
 │   └─6404 /bin/bash
 ```
 
-Now we know a little about `control groups` mechanism, how to use it manually and what's purpose of this mechanism. Time to look inside of the Linux kernel source code and start to dive into implementation of this mechanism.
+Giờ, chúng ta đã hiểu một chút về cơ chế `control groups` rồi, vậy nó được sử dụng như thế nào và mục đích của cơ chế này là gì. Giờ là lúc để tiếp túc xem xét mã nguồn nhân Linux và bắt đầu phân tích xử lý của cơ chế này.
 
 Early initialization of control groups
 --------------------------------------------------------------------------------
