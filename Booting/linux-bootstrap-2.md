@@ -1,63 +1,63 @@
-Kernel booting process. Part 2.
+Quá trinhg boot nhân. Phần 2.
 ================================================================================
 
-First steps in the kernel setup
+Các bước đầu tiên khi thiết lập nhân
 --------------------------------------------------------------------------------
 
-We started to dive into linux kernel insides in the previous [part](linux-bootstrap-1.md) and saw the initial part of the kernel setup code. We stopped at the first call to the `main` function (which is the first function written in C) from [arch/x86/boot/main.c](https://github.com/torvalds/linux/blob/master/arch/x86/boot/main.c). 
+ Chúng ta đã bắt đầu tìm hiểu bên trong nhân Linux ở chương trước [part](linux-bootstrap-1.md) đã xem phần đầu trong đoạn code thiết lập nhân (kernel setup code). Chúng ta đã dừng lại đoạn gọi đến hàm `main` (là hàm đầu tiên được viết bằng C) trong [arch/x86/boot/main.c](https://github.com/torvalds/linux/blob/master/arch/x86/boot/main.c). 
 
-In this part we will continue to research the kernel setup code and 
-* see what `protected mode` is,
-* some preparation for the transition into it,
-* the heap and console initialization,
-* memory detection, cpu validation, keyboard initialization
-* and much much more.
+Trong chương này, chúng ta vẫn tiếp tục nghiên cứu thêm về đoạn code setup nhân 
+* Xem cái `protected mode` là cái gì,
+* Các chuẩn bị để chuyển sang mode đó,
+* Khởi tạo bộ nhớ heap, console,
+* Phát hiện bộ nhớ (memory detection), kiểm tra CPU (cpu validation), khởi tạo bàn phím 
+* và nhiều, nhiều hơn thế.
 
-So, Let's go ahead.
+ Nào, hãy bắt đầu nào.
 
-Protected mode
+ Chế độ Protected mode (Protected mode)
 --------------------------------------------------------------------------------
 
-Before we can move to the native Intel64 [Long Mode](http://en.wikipedia.org/wiki/Long_mode), the kernel must switch the CPU into protected mode.
+ Trước khi bạn có thể chuyển sang Intel64 native (native Intel64) [Long Mode](http://en.wikipedia.org/wiki/Long_mode), kernel phải chuyển CPU sang chế độ protected mode.
 
-What is [protected mode](https://en.wikipedia.org/wiki/Protected_mode)? Protected mode was first added to the x86 architecture in 1982 and was the main mode of Intel processors from the [80286](http://en.wikipedia.org/wiki/Intel_80286) processor until Intel 64 and long mode came.
+Chế độ [protected mode](https://en.wikipedia.org/wiki/Protected_mode) là cái gì? Chế độ Protected mode ban đầu được thêm vào kiến trúc x86 vào năm 1982 và là chế độ chính cho bộ xử lý Intel từ [80286](http://en.wikipedia.org/wiki/Intel_80286) cho đến Intel 64 và long mode mới được sinh ra.
 
-The main reason to move away from [Real mode](http://wiki.osdev.org/Real_Mode) is that there is very limited access to the RAM. As you may remember from the previous part, there is only 2<sup>20</sup> bytes or 1 Megabyte, sometimes even only 640 Kilobytes of RAM available in the Real mode.
+ Lý do chính để chuyển sang từ chế độ [Real mode](http://wiki.osdev.org/Real_Mode) là do sự hạn chế về kích thước bộ nhớ có thể truy cập. Bạn có thể nhớ một chút về chương trước, chỉ có 2<sup>20</sup> bytes hay 1 Megabyte, hay thâm chí chỉ 640 Kilobytes của RAM có thể sử dụng trong chế độ Real Mode.
 
-Protected mode brought many changes, but the main one is the difference in memory management. The 20-bit address bus was replaced with a 32-bit address bus. It allowed access to 4 Gigabytes of memory vs 1 Megabyte of real mode. Also [paging](http://en.wikipedia.org/wiki/Paging) support was added, which you can read about in the next sections.
+Chế độ Protected mode mang đến rất nhiều thay đổi, nhưng thay đổi chính là trong quản lý bộ nhớ. Bus địa chỉ 20-bit được thay thế bằng bus địa chỉ 32-bit. Nó cho phép truy cập đến 4 Gigabytes bộ nhớ so với 1 Megabyte như trong chế độ Real mode. Cả việc hỗ trợ phân trang [paging](http://en.wikipedia.org/wiki/Paging) cũng được đưa vào, bạn có thể độc về nó ở trong chương sau.
 
-Memory management in Protected mode is divided into two, almost independent parts:
+ Quản lý bộ nhớ trong chế độ Protected Mode được chia làm 2 phần, hầu như tách biệt nhau:
 
-* Segmentation
-* Paging
+* Segmentation (phân đoạn)
+* Paging (phân trang)
 
-Here we will only see segmentation. Paging will be discussed in the next sections. 
+ Trong chương này chúng ta chỉ nói về phân đoạn (segmentation). Phân trang (Paging) được miêu tả trong chương sau. 
 
-As you can read in the previous part, addresses consist of two parts in real mode:
+ Như đã nói ở chương trước, mỗi địa chỉ trong real mode chứa 2 phần:
 
-* Base address of the segment
-* Offset from the segment base
+* Địa chỉ cơ bản của đoạn (Base address of the segment)
+* Khoảng cách tính từ đoạn cơ bản (Offset from the segment base)
 
-And we can get the physical address if we know these two parts by:
+ Chúng ta có thể biết địa chỉ thực nếu biết 2 thành phần này theo công thức sau:
 
 ```
 PhysicalAddress = Segment Selector * 16 + Offset
 ```
 
-Memory segmentation was completely redone in protected mode. There are no 64 Kilobyte fixed-size segments. Instead, the size and location of each segment is described by an associated data structure called _Segment Descriptor_. The segment descriptors are stored in a data structure called `Global Descriptor Table` (GDT).
+Đoạn bộ nhớ (Memory segmentation) được làm lại hoàn toàn trong chế độ protected mode. Không có các đoạn với kích thước cố định 64 Kilobyte nữa. Thay vào đó, kích thước và vị trí mỗi đoạn được biểu diễn bằng một cấu trúc tương ứng có tên _Segment Descriptor_. Các miêu tả đoạn này lại được lưu trong một cấu trúc khác gọi là `Global Descriptor Table` (GDT).
 
-The GDT is a structure which resides in memory. It has no fixed place in the memory so, its address is stored in the special `GDTR` register. Later we will see the GDT loading in the Linux kernel code. There will be an operation for loading it into memory, something like:
+ Cái GDT là một cấu trúc nằm suốt trên bộ nhớ. Nó không có vị trí cố định trên bộ nhớ, vì thế địa chỉ cơ bản được lưu ở vị trí thanh ghi `GDTR`. Ở phần sau, chúng ta sẽ xem đoạn load giá trị cho GDT (GDT loading) trong code của nhân Linux. Sẽ có một thao tác load GDT vào bộ nhớ kiểu như sau:
 
 ```assembly
 lgdt gdt
 ```
 
-where the `lgdt` instruction loads the base address and limit(size) of global descriptor table to the `GDTR` register. `GDTR` is a 48-bit register and consists of two parts:
+Lệnh `lgdt` sẽ load địa chỉ cơ bản và giới hạn bộ nhớ của GDT (global descriptor table) vào thanh ghi `GDTR`. `GDTR` là một thanh ghi 48-bit, chứa 2 phần:
 
- * size(16-bit) of global descriptor table;
- * address(32-bit) of the global descriptor table.
+ * kích thước (16-bit) của GDT (global descriptor table);
+ * địa chỉ (32-bit) của GDT đó (global descriptor table).
 
-As mentioned above the GDT contains `segment descriptors` which describe memory segments.  Each descriptor is 64-bits in size. The general scheme of a descriptor is:
+ Như đã nói đến trước đó GDT chứa một miêu tả đoạn hay `segment descriptors` miêu tả các đoạn trong bộ nhớ. Mỗi miêu tả này sẽ miêu tả kích thước trong 64-bits. Cấu trúc chung của mô tả này như sau:
 
 ```
 31          24        19      16              7            0
@@ -72,27 +72,27 @@ As mentioned above the GDT contains `segment descriptors` which describe memory 
 ------------------------------------------------------------
 ```
 
-Don't worry, I know it looks a little scary after real mode, but it's easy. For example LIMIT 15:0 means that bit 0-15 of the Descriptor contain the value for the limit. The rest of it is in LIMIT 19:16. So, the size of Limit is 0-19 i.e 20-bits. Let's take a closer look at it:
+Trong có vẻ đáng sợ phải không so với chế độ Real Mode phải không, nhưng đừng lo, nó dễ thôi. Ví dụ, `LIMIT 15:0` có nghĩa là đoạn bit 0-15 của Descriptor chứa giá trị cho `limit`. Phần còn lại của nó là `LIMIT 19:16`. Vì thế, kích thước của giá trị  Limit là đoạn bit 0-19 hay là 20-bits. Giờ chúng ta sẽ xem xét kĩ từng trường một:
 
-1. Limit[20-bits] is at 0-15,16-19 bits. It defines `length_of_segment - 1`. It depends on `G`(Granularity) bit.
+1. Limit[20-bits] gồm 2 đoạn 0-15,16-19 bits. Nó định nghĩa giá trị `length_of_segment - 1`. Phụ thuộc vào giá trị của `G`(Granularity) bit.
 
-  * if `G` (bit 55) is 0 and segment limit is 0, the size of the segment is 1 Byte
-  * if `G` is 1 and segment limit is 0, the size of the segment is 4096 Bytes
-  * if `G` is 0 and segment limit is 0xfffff, the size of the segment is 1 Megabyte
-  * if `G` is 1 and segment limit is 0xfffff, the size of the segment is 4 Gigabytes
+  * Nếu `G` (bit 55) là 0 và segment limit là 0, kích thước của  segment là 1 Byte
+  * Nếu `G` là 1 và segment limit là 0, kích thước của segment là 4096 Bytes
+  * Nếu `G` là 0 và segment limit là 0xfffff, kích thước của segment là 1 Megabytes
+  * Nếu `G` là 1 and segment limit là 0xfffff, kích thước của segment là 4 Gigabytes
 
-  So, it means that if
-  * if G is 0, Limit is interpreted in terms of 1 Byte and the maximum size of the segment can be 1 Megabyte.
-  * if G is 1, Limit is interpreted in terms of 4096 Bytes = 4 KBytes = 1 Page and the maximum size of the segment can be 4 Gigabytes. Actually when G is 1, the value of Limit is shifted to the left by 12 bits. So, 20 bits + 12 bits = 32 bits and 2<sup>32</sup> = 4 Gigabytes.
+  Vì vậy, nói ngắn gọn lại, nó sẽ như sau:
+  * Nếu G là 0, Limit có thể được hiểu là 1 Byte và kích thước lớn nhất của segment có thể là 1 Megabyte.
+  * Nếu G là 1, Limit có thể được hiểu là 4096 Bytes = 4 KBytes = 1 Page và kích thước của segment có thể là 4 Gigabytes. Thực sự thì khi G bằng 1, giá trị Limit được shift sang trái 12 bits. Vì thế, 20 bits + 12 bits = 32 bits and 2<sup>32</sup> = 4 Gigabytes.
 
-2. Base[32-bits] is at (0-15, 32-39 and 56-63 bits). It defines the physical address of the segment's starting location.
+2. Base[32-bits] ở các đoạn (0-15, 32-39 and 56-63 bits). Nó định nghĩa địa chỉ bắt đầu của segment.
 
-3. Type/Attribute (40-47 bits) defines the type of segment and kinds of access to it. 
-  * `S` flag at bit 44 specifies descriptor type. If `S` is 0 then this segment is a system segment, whereas if `S` is 1 then this is a code or data segment (Stack segments are data segments which must be read/write segments).
+3. Type/Attribute (40-47 bits) định nghĩa loại segment và kiểu truy cập đến nó. 
+  * Cờ `S` ở bit 44 chỉ ra loại descriptor. Nếu `S` là 0, đó là loại system segment, nếu `S` là 1, đó là code hoặc data segment (Stack segments là data segments cái sẽ được đọc/ghi theo segement).
   
-To determine if the segment is a code or data segment we can check its Ex(bit 43) Attribute marked as 0 in the above diagram. If it is 0, then the segment is a Data segment otherwise it is a code segment.
+Để kiểm tra một segment là code hay là data segment chúng ta có thể kiểm tra giá trị Ex(bit 43) Attribute của nó, cái được đánh dấu 0 ở hình trên. Nếu nó là 0, thì đó là Data segment ngược lại thì đó là code segment.
 
-A segment can be of one of the following types:
+Các loại segment :
 
 ```
 |           Type Field        | Descriptor Type | Description
@@ -118,24 +118,24 @@ A segment can be of one of the following types:
 | 15          1    1    1   1 | Code            | Execute/Read, conforming, accessed
 ```
 
-As we can see the first bit(bit 43) is `0` for a _data_ segment and `1` for a _code_ segment. The next three bits(40, 41, 42, 43) are either `EWA`(*E*xpansion *W*ritable *A*ccessible) or CRA(*C*onforming *R*eadable *A*ccessible).
-  * if E(bit 42) is 0, expand up other wise expand down. Read more [here](http://www.sudleyplace.com/dpmione/expanddown.html).
-  * if W(bit 41)(for Data Segments) is 1, write access is allowed otherwise not. Note that read access is always allowed on data segments.
-  * A(bit 40) - Whether the segment is accessed by processor or not.
-  * C(bit 43) is conforming bit(for code selectors). If C is 1, the segment code can be executed from a lower level privilege e.g. user level. If C is 0, it can only be executed from the same privilege level.
-  * R(bit 41)(for code segments). If 1 read access to segment is allowed otherwise not. Write access is never allowed to code segments.
+ Như thấy ở trên (bit 43) là `0` có nghĩa là _data_ segment, và bằng `1` có nghĩa là _code_ segment. Ba bit tiếp theo là (40, 41, 42, 43) là `EWA`(*E*xpansion *W*ritable *A*ccessible) hoặc CRA(*C*onforming *R*eadable *A*ccessible).
+  * Nếu E(bit 42) là 0, expand up other wise expand down. Đọc thêm tại [đây](http://www.sudleyplace.com/dpmione/expanddown.html).
+  * Nếu W(bit 41)( dành cho Data Segments) là 1, chỉ trường hợp này quyền ghi mới được phép, còn lại thì không. Chú ý rằng, quyền đọc thì luôn cho phép trên data segment.
+  * A(bit 40) - segment này sẽ được access bởi processor hay không?.
+  * C(bit 43) là bit conforming bit(được sử dụng khi chọn code). Nếu C là 1, cái segment code có thể được chạy từ quyền truy cập thấp hơn (lower level privilege) ví dụ là level user. Nếu C là 0, nó chỉ được phép chạy từ user có cùng mức truy cập (privilege level).
+  * R(bit 41)(dành cho code segments). Nếu là 1, thì sẽ cho phép đọc ngược lại thì không. Quyền ghi không bao giờ được cho phép.
 
-4. DPL[2-bits] (Descriptor Privilege Level) is at bits 45-46. It defines the privilege level of the segment. It can be 0-3 where 0 is the most privileged.
+4. DPL[2-bits] (Descriptor Privilege Level) là các bit 45-46. Nó định nghĩa mức độ truy cập (privilege level) của segment. Nó có khoảng giá trị 0-3, trong đó 0 tương đương với quyền truy cập cao nhất (most privileged).
 
-5. P flag(bit 47) - indicates if the segment is present in memory or not. If P is 0, the segment will be presented as _invalid_ and the processor will refuse to read this segment.
+5. P flag(bit 47) - cho biết segment có được biểu diễn trên bộ nhớ hay không. Nếu P là 0, segment được hiểu là _invalid_ và process sẽ không đọc segment này.
 
-6. AVL flag(bit 52) - Available and reserved bits. It is ignored in Linux.
+6. AVL flag(bit 52) - Bit dự trữ. Bị bỏ qua trên Linux.
 
-7. L flag(bit 53) - indicates whether a code segment contains native 64-bit code. If 1 then the code segment executes in 64 bit mode.
+7. L flag(bit 53) - chỉ ra code segment có chứa native 64-bit code hay không. Bằng 1 có nghĩa là segment được chạy trong chế độ 64-bit.
 
-8. D/B flag(bit 54) - Default/Big flag represents the operand size i.e 16/32 bits. If it is set then 32 bit otherwise 16.
+8. D/B flag(bit 54) - Cờ Default/Big biểu diễn kích thước toán tử ví dụ 16/32 bits. Nếu nó được set thì được hiểu là 32 bit, còn lại là 16.
 
-Segment registers contain segment selectors as in real mode. However, in protected mode, a segment selector is handled differently. Each Segment Descriptor has an associated Segment Selector which is a 16-bit structure:
+Segment registers chứa các segment selectors khi ở real mode. Tuy nhiên, ở protected mode, segment selector được handled theo cách khác. Mỗi Segment Descriptor có một Segment Selector, ở dạng một cấu trúc 16-bit structure:
 
 ```
 15              3  2   1  0
@@ -144,48 +144,48 @@ Segment registers contain segment selectors as in real mode. However, in protect
 -----------------------------
 ```
 
-Where,
-* **Index** shows the index number of the descriptor in the GDT.
-* **TI**(Table Indicator) shows where to search for the descriptor. If it is 0 then search in the Global Descriptor Table(GDT) otherwise it will look in Local Descriptor Table(LDT).
-* And **RPL** is Requester's Privilege Level.
+ trong đó,
+* **Index** chỉ ra số lượng của descriptor trong GDT.
+* **TI**(Table Indicator)  cho biết nên tìm kiếm các descriptor ở đâu. Nếu nó là 0 việc tìm kiếm được thực hiện trong Global Descriptor Table(GDT), ngược lại sẽ được tìm kiếm trong Local Descriptor Table(LDT).
+* Và **RPL** là Requester's Privilege Level.
 
-Every segment register has a visible and hidden part.
-* Visible - Segment Selector is stored here
+ Mọi segment register đều có phần nổi và chìm (visible and hidden part).
+* Visible - Segment Selector sẽ được lưu ở đây 
 * Hidden - Segment Descriptor(base, limit, attributes, flags)
  
-The following steps are needed to get the physical address in the protected mode:
+ Các bước sau cần được thực hiện để tìm ra địa chỉ vật lý (physical address) ở chế độ protected mode:
 
-* The segment selector must be loaded in one of the segment registers
-* The CPU tries to find a segment descriptor by GDT address + Index from selector and load the descriptor into the *hidden* part of the segment register
-* Base address (from segment descriptor) + offset will be the linear address of the segment which is the physical address (if paging is disabled).
+* Cái segment selector phải được load vào một trong những segment registers
+* CPU cố gắng tìm một segment descriptor bằng GDT address + Index từ selector và load descriptor vào phần *hidden*  của segment register
+* Base address (from segment descriptor) + offset sẽ là địa chỉ tuyển tính (linear address) của segment hay chính là địa chỉ vật lý (physical address) (nếu phân trang được tắt đi).
 
-Schematically it will look like this:
+ Về mặt mô tả hình học thì nó sẽ như sau:
 
 ![linear address](http://oi62.tinypic.com/2yo369v.jpg)
 
-The algorithm for the transition from real mode into protected mode is:
+ Thuật toán để chuyển từ real mode sang protected mode có dạng như sau:
 
-* Disable interrupts
-* Describe and load GDT with `lgdt` instruction
-* Set PE (Protection Enable) bit in CR0 (Control Register 0)
-* Jump to protected mode code
+* Tắt ngắt (Disable interrupts)
+* Mô tả và load GDT bằng câu lệnh lgdt (Describe and load GDT with `lgdt` instruction)
+* Bất Protection bằng cách Set bit PE (Protection Enable) trong thanh ghi CR0 (Control Register 0)
+* Nhảy đến code chạy trong chế độ protected mode
 
-We will see the complete transition to protected mode in the linux kernel in the next part, but before we can move to protected mode, we need to do some more preparations.
+ Chúng ta sẽ xem xét quá việc chuyển đổi đầy đủ sang protected mode trong nhân Linux trong phần tiếp theo, nhưng trước khi đến đó, chúng ta sẽ làm một số chuẩn bị.
 
-Let's look at [arch/x86/boot/main.c](https://github.com/torvalds/linux/blob/master/arch/x86/boot/main.c). We can see some routines there which perform keyboard initialization, heap initialization, etc... Let's take a look.
+Cùng nhìn source của file [arch/x86/boot/main.c](https://github.com/torvalds/linux/blob/master/arch/x86/boot/main.c). Chúng ta có thấy một vài đoạn mã thực hiện việc khởi tạo bàn phím, khởi tạo heap, etc... Hãy nhìn qua chúng một chút.
 
-Copying boot parameters into the "zeropage"
+ Copy các tham số boot vào trang 0 ("zeropage")
 --------------------------------------------------------------------------------
 
-We will start from the `main` routine in "main.c". First function which is called in `main` is [`copy_boot_params(void)`](https://github.com/torvalds/linux/blob/master/arch/x86/boot/main.c#L30). It copies the kernel setup header into the field of the `boot_params` structure which is defined in the [arch/x86/include/uapi/asm/bootparam.h](https://github.com/torvalds/linux/blob/master/arch/x86/include/uapi/asm/bootparam.h#L113).
+ Chúng ta bắt đầu từ hàm `main` quen thuộc trong file "main.c". Hàm đầu tiên được gọi trong hàm `main` là [`copy_boot_params(void)`](https://github.com/torvalds/linux/blob/master/arch/x86/boot/main.c#L30). Nó thực hiện việc copy đoạn đầu của thiết lập nhân (kernel setup header) vào các trường của cấu trúc `boot_params`, cấu trúc này được định nghĩa ở [arch/x86/include/uapi/asm/bootparam.h](https://github.com/torvalds/linux/blob/master/arch/x86/include/uapi/asm/bootparam.h#L113).
 
-The `boot_params` structure contains the `struct setup_header hdr` field. This structure contains the same fields as defined in [linux boot protocol](https://www.kernel.org/doc/Documentation/x86/boot.txt) and is filled by the boot loader and also at kernel compile/build time. `copy_boot_params` does two things:
+Cấu trúc `boot_params` chứa trường `struct setup_header hdr`. Cấu trúc này chứa những trường cùng tên được định nghĩa trong [linux boot protocol](https://www.kernel.org/doc/Documentation/x86/boot.txt) và giá trị các trường sẽ được gán bởi boot loader lẫn thời điểm build kernel (kernel compile/build time). Hàm `copy_boot_params` thực hiện 2 thứ:
 
-1. Copies `hdr` from [header.S](https://github.com/torvalds/linux/blob/master/arch/x86/boot/header.S#L281) to the `boot_params` structure in `setup_header` field
+1. Copies giá trị `hdr` từ [header.S](https://github.com/torvalds/linux/blob/master/arch/x86/boot/header.S#L281) vào cấu trúc `boot_params`, hay chính xác là trường `setup_header`
 
-2. Updates pointer to the kernel command line if the kernel was loaded with the old command line protocol.
+2. Điều chỉnh con trỏ trỏ đến vị trí chứa dòng lệnh khởi nhân nếu nhân được load bằng giao thức dòng lệnh cũ.
 
-Note that it copies `hdr` with `memcpy` function which is defined in the [copy.S](https://github.com/torvalds/linux/blob/master/arch/x86/boot/copy.S) source file. Let's have a look inside:
+Chú ý rằng, nó copy `hdr` bằng hàm `memcpy` được định nghĩa trong file [copy.S](https://github.com/torvalds/linux/blob/master/arch/x86/boot/copy.S). Hãy xem bên trong nó chút:
 
 ```assembly
 GLOBAL(memcpy)
@@ -205,40 +205,40 @@ GLOBAL(memcpy)
 ENDPROC(memcpy)
 ```
 
-Yeah, we just moved to C code and now assembly again :) First of all we can see that `memcpy` and other routines which are defined here, start and end with the two macros: `GLOBAL` and `ENDPROC`. `GLOBAL` is described in [arch/x86/include/asm/linkage.h](https://github.com/torvalds/linux/blob/master/arch/x86/include/asm/linkage.h) which defines `globl` directive and the label for it. `ENDPROC` is described in [include/linux/linkage.h](https://github.com/torvalds/linux/blob/master/include/linux/linkage.h) which marks the `name` symbol as a function name and ends with the size of the `name` symbol.
+ Ồ, chúng ta vừa ở code C, đến đây lại quay lại assembly rồi :) Đầu tiên nhất chúng ta có thể thấy ở hàm `memcpy` này hay cả các hàm khác được định nghĩa tương tự, nó được mở đầu và kết thúc bởi 2 macros: `GLOBAL` và `ENDPROC`. `GLOBAL` được miêu tả trong file [arch/x86/include/asm/linkage.h](https://github.com/torvalds/linux/blob/master/arch/x86/include/asm/linkage.h) cái sẽ định nghĩa chỉ thị dịch `globl` cùng với nhãn tương ứng cho nó. `ENDPROC` được mô tả tại file [include/linux/linkage.h](https://github.com/torvalds/linux/blob/master/include/linux/linkage.h)  nó sẽ đánh dấu kí hiệu truyền vào `name` là một tên hàm function name và kết thúc bằng kích thước của kí hiệu `name` đó.
 
-Implementation of `memcpy` is easy. At first, it pushes values from the `si` and `di` registers to the stack to preserve their values because they will change during the `memcpy`. `memcpy` (and other functions in copy.S) use `fastcall` calling conventions. So it gets its incoming parameters from the `ax`, `dx` and `cx` registers.  Calling `memcpy` looks like this:
+ Xử lý của `memcpy` là dễ hiểu. Đầu tiên, nó đẩy giá trị từ các thanh ghi `si` và `di` registers vào stack để giữ giá trị của chúng vì chúng sẽ được thay đổi sau đó `memcpy`. `memcpy` ( và các hàm khác trong copy.S) sử dụng cú pháp gọi `fastcall`. Vì thế, nó sẽ nhận các tham số đầu vào từ các thanh ghi `ax`, `dx` và `cx`. Lời gọi hàm sẽ `memcpy` sẽ trông giống như sau:
 
 ```c
 memcpy(&boot_params.hdr, &hdr, sizeof hdr);
 ```
 
-So,
-* `ax` will contain the address of the `boot_params.hdr`
-* `dx` will contain the address of `hdr`
-* `cx` will contain the size of `hdr` in bytes.
+ Vì thế,
+* `ax` chứa địa chỉ của `boot_params.hdr`
+* `dx` chứa địa chỉ của `hdr`
+* `cx` sẽ chứa kích thước của `hdr` tính bằng bytes.
 
-`memcpy` puts the address of `boot_params.hdr` into `di` and saves the size on the stack. After this it shifts to the right on 2 size (or divide on 4) and copies from `si` to `di` by 4 bytes. After this we restore the size of `hdr` again, align it by 4 bytes and copy the rest of the bytes from `si` to `di` byte by byte (if there is more). Restore `si` and `di` values from the stack in the end and after this copying is finished.
+`memcpy` sẽ đặt địa chỉ của `boot_params.hdr` vào thanh ghi `di` và lưu kích thước của nó lên stack. Sau bước này nó sẽ dịch sang trái 2 bit (hay chia cho 4) và copy từ `si` vào `di` đúng 4 bytes. Sau bước này chúng ta sẽ phục hồi kích thước của `hdr`, bỏ đi 4 bytes và copy phần còn lại của dãy bytes từ `si` đến `di` theo từng byte 1 (hoặc có thể hơn). Khi đã phục hồi được giá trị `si` và `di` thì quá trình copy sẽ kết thúc.
 
-Console initialization
+Khởi tạo console 
 --------------------------------------------------------------------------------
 
-After `hdr` is copied into `boot_params.hdr`, the next step is console initialization by calling the `console_init` function which is defined in [arch/x86/boot/early_serial_console.c](https://github.com/torvalds/linux/blob/master/arch/x86/boot/early_serial_console.c).
+ Sau khi `hdr` được copy vào `boot_params.hdr`, bước tiếp theo là khởi tạo console bằng cách gọi hàm `console_init` được định nghĩa tại file [arch/x86/boot/early_serial_console.c](https://github.com/torvalds/linux/blob/master/arch/x86/boot/early_serial_console.c).
 
-It tries to find the `earlyprintk` option in the command line and if the search was successful, it parses the port address and baud rate of the serial port and initializes the serial port. Value of `earlyprintk` command line option can be one of these:
+ Nó sẽ tìm xem có option `earlyprintk` trong câu lệnh khở động nhân không, và nếu tìm thấy, nó sẽ đọc địa chỉ cổng, baud rate của cổng serial rồi khởi động cổng serial được truyền cho đó. Giá trị của otpion `earlyprintk` trong dòng lệnh khởi động nhân có thể là một trong những giá trị sau:
 
 * serial,0x3f8,115200
 * serial,ttyS0,115200
 * ttyS0,115200
 
-After serial port initialization we can see the first output:
+Sau quá trình khởi tạo console, chúng ta có thể thấy được output đầu tiên thông qua đoạn mã sau:
 
 ```C
 if (cmdline_find_option_bool("debug"))
     puts("early console in setup code\n");
 ```
 
-The definition of `puts` is in [tty.c](https://github.com/torvalds/linux/blob/master/arch/x86/boot/tty.c). As we can see it prints character by character in a loop by calling the `putchar` function. Let's look into the `putchar` implementation:
+Định nghĩa của hàm `puts` dùng ở trên nằm trong file [tty.c](https://github.com/torvalds/linux/blob/master/arch/x86/boot/tty.c). Nếu xem source của nó bạn có thể thấy đó là một vòng lặp kết hợp với hàm `putchar`. Nào cùng xem xét hàm `putchar` xem nó thực hiện cái gì:
 
 ```C
 void __attribute__((section(".inittext"))) putchar(int ch)
@@ -253,9 +253,9 @@ void __attribute__((section(".inittext"))) putchar(int ch)
 }
 ```
 
-`__attribute__((section(".inittext")))` means that this code will be in the `.inittext` section. We can find it in the linker file [setup.ld](https://github.com/torvalds/linux/blob/master/arch/x86/boot/setup.ld#L19).
+`__attribute__((section(".inittext")))` có nghĩa là đoạn này được đặt trong section `.inittext`. Chúng ta có thể tìm thấy tên của nó trong file linker [setup.ld](https://github.com/torvalds/linux/blob/master/arch/x86/boot/setup.ld#L19).
 
-First of all, `putchar` checks for the `\n` symbol and if it is found, prints `\r` before. After that it outputs the character on the VGA screen by calling the BIOS with the `0x10` interrupt call:
+Trong thực thi của nó, đầu tiên nhất, hàm `putchar` kiểm tra xem có phải kí tự `\n` hay không, và nếu đúng thật, nó sẽ in ra `\r`. Sau đó nó đẩy kí tự ra màn hình VGA thông qua hàm của BIOS với lời gọi ngắt là `0x10`:
 
 ```C
 static void __attribute__((section(".inittext"))) bios_putchar(int ch)
@@ -271,7 +271,7 @@ static void __attribute__((section(".inittext"))) bios_putchar(int ch)
 }
 ```
 
-Here `initregs` takes the `biosregs` structure and first fills `biosregs` with zeros using the `memset` function and then fills it with register values.
+ Hàm `initregs` ở đây khởi tạo cấu trúc `biosregs` structure và gán ZERO cho biến cấu trúc `biosregs` đó sử dụng hàm khá quen thuộc trong C `memset`, sau đó nó điền các giá trị của thanh ghi tương ứng.
 
 ```C
     memset(reg, 0, sizeof *reg);
@@ -282,7 +282,7 @@ Here `initregs` takes the `biosregs` structure and first fills `biosregs` with z
     reg->gs = gs();
 ```
 
-Let's look at the [memset](https://github.com/torvalds/linux/blob/master/arch/x86/boot/copy.S#L36) implementation:
+Cùng xem thực thi của hàm [memset](https://github.com/torvalds/linux/blob/master/arch/x86/boot/copy.S#L36) này:
 
 ```assembly
 GLOBAL(memset)
@@ -301,22 +301,22 @@ GLOBAL(memset)
 ENDPROC(memset)
 ```
 
-As you can read above, it uses the `fastcall` calling conventions like the `memcpy` function, which means that the function gets parameters from `ax`, `dx` and `cx` registers.
+ Như bạn đã đọc được ở trên, nó sử dụng cú pháp gọi `fastcall` giống như cách hàm `memcpy` đã thực hiện, có nghĩa là nó sẽ lấy các tham số từ 3 thanh ghi `ax`, `dx` và `cx` .
 
-Generally `memset` is like a memcpy implementation. It saves the value of the `di` register on the stack and puts the `ax` value into `di` which is the address of the `biosregs` structure. Next is the `movzbl` instruction, which copies the `dl` value to the low 2 bytes of the `eax` register. The remaining 2 high bytes  of `eax` will be filled with zeros.
+Nói chung `memset` giống như các thực hiện hàm memset. Nó lưu giá trị thanh ghi `di` vào stack stack đưa giá trị`ax` vài `di` hay chính là chứa địa chỉ của cấu trúc `biosregs`. Tiếp theo đó là câu lệnh `movzbl`, nó sẽ copy giá trị `dl` vào 2 byte cuối của thanh ghi `eax`. 2 byte cao của thanh ghi `eax` này sẽ được điền bằng 0 hết.
 
-The next instruction multiplies `eax` with `0x01010101`. It needs to because `memset` will copy 4 bytes at the same time. For example, we need to fill a structure with `0x7` with memset. `eax` will contain `0x00000007` value in this case. So if we multiply `eax` with `0x01010101`, we will get `0x07070707` and now we can copy these 4 bytes into the structure. `memset` uses `rep; stosl` instructions for copying `eax` into `es:di`.
+Câu lệnh tiếp theo `imull` sẽ nhân `eax` với giá trị `0x01010101`. Đoạn này 4 byte cần thiết bởi vì `memset` sẽ copy 4 bytes đồng thời, nhân với 0x01 mỗi byte để lấy giá trị mà muốn fill. Ví dụ, chúng ta cần điền một cấu trúc với toàn giá trị `0x7` bằng memset chẳng hạn. `eax` sẽ chứa giá trị cần để sử dụng là `0x00000007`. Vì thế chúng ta đã nhân `eax` với `0x01010101`, và chúng ta được `0x07070707` và giờ copy 4 bytes này vào cấu trúc. `memset` sử dụng các lệnh `rep; stosl` để copy từ `eax` sang `es:di`.
 
-The rest of the `memset` function does almost the same as `memcpy`.
+Đoạn còn lại của hàm `memset` gần như giống với `memcpy`.
 
-After the `biosregs` structure is filled with `memset`, `bios_putchar` calls the [0x10](http://www.ctyme.com/intr/rb-0106.htm) interrupt which prints a character. Afterwards it checks if the serial port was initialized or not and writes a character there with [serial_putchar](https://github.com/torvalds/linux/blob/master/arch/x86/boot/tty.c#L30) and `inb/outb` instructions if it was set.
+Sau khi cấu trúc `biosregs` được điền bằng `memset`, hàm `bios_putchar` sẽ gọi ngắt [0x10](http://www.ctyme.com/intr/rb-0106.htm) để thực hiện in ra kí tự tương ứng. tiếp theo của hàm putchar, nó sẽ kiểm tra cổng serial được khởi tạo hay chưa, để đẩy kí tự tương ứng ra với hàm [serial_putchar](https://github.com/torvalds/linux/blob/master/arch/x86/boot/tty.c#L30) và thực hiện `inb/outb` nếu nó được set.
 
-Heap initialization
+Khởi tạo Heap
 --------------------------------------------------------------------------------
 
-After the stack and bss section were prepared in [header.S](https://github.com/torvalds/linux/blob/master/arch/x86/boot/header.S) (see previous [part](linux-bootstrap-1.md)), the kernel needs to initialize the [heap](https://github.com/torvalds/linux/blob/master/arch/x86/boot/main.c#L116) with the [`init_heap`](https://github.com/torvalds/linux/blob/master/arch/x86/boot/main.c#L116) function.
+ Sau khi stack và bss section được chuẩn bị trong [header.S](https://github.com/torvalds/linux/blob/master/arch/x86/boot/header.S) (xem chương trước tại [part](linux-bootstrap-1.md)), nhân cũng cần khởi tạo [heap](https://github.com/torvalds/linux/blob/master/arch/x86/boot/main.c#L116) nữa bằng hàm [`init_heap`](https://github.com/torvalds/linux/blob/master/arch/x86/boot/main.c#L116).
 
-First of all `init_heap` checks the [`CAN_USE_HEAP`](https://github.com/torvalds/linux/blob/master/arch/x86/include/uapi/asm/bootparam.h#L21) flag from the [`loadflags`](https://github.com/torvalds/linux/blob/master/arch/x86/boot/header.S#L321) in the kernel setup header and calculates the end of the stack if this flag was set:
+Đầu tiên nhất `init_heap` kiểm tra cờ [`CAN_USE_HEAP`](https://github.com/torvalds/linux/blob/master/arch/x86/include/uapi/asm/bootparam.h#L21) từ giá trị [`loadflags`](https://github.com/torvalds/linux/blob/master/arch/x86/boot/header.S#L321) trong header thiết lập nhân và tính toán vị trí cuối của stack nếu cờ này được set:
 
 ```C
     char *stack_end;
@@ -326,22 +326,22 @@ First of all `init_heap` checks the [`CAN_USE_HEAP`](https://github.com/torvalds
             : "=r" (stack_end) : "i" (-STACK_SIZE));
 ```
 
-or in other words `stack_end = esp - STACK_SIZE`.
+hay nói cách khác `stack_end = esp - STACK_SIZE`.
 
-Then there is the `heap_end` calculation:
+Sau đó, vị trí cuối của heap, `heap_end` được tính như sau:
 ```c
     heap_end = (char *)((size_t)boot_params.hdr.heap_end_ptr + 0x200);
 ```
-which means `heap_end_ptr` or `_end` + `512`(`0x200h`). The last check is whether `heap_end` is greater than `stack_end`. If it is then `stack_end` is assigned to `heap_end` to make them equal.
+điều này có nghĩa là bằng `heap_end_ptr` hay `_end` + `512`(`0x200h`). Đoạn cuối sẽ kiểm tra xem `heap_end` có lớn hơn giá trị `stack_end` hay không. Nếu có thì`stack_end` được gán bằng `heap_end` để làm chúng bằng nhau.
 
-Now the heap is initialized and we can use it using the `GET_HEAP` method. We will see how it is used, how to use it and how the it is implemented in the next posts.
+Giờ thì heap đã được khởi tạo, chúng ta có thể sử dụng hàm `GET_HEAP`. Chúng ta sẽ thấy chúng được sử dụng như thế nào, và làm thế nào được sử dụng cũng như chúng được viết ra sao.
 
-CPU validation
+Xác nhận CPU (CPU validation)
 --------------------------------------------------------------------------------
 
-The next step as we can see is cpu validation by `validate_cpu` from [arch/x86/boot/cpu.c](https://github.com/torvalds/linux/blob/master/arch/x86/boot/cpu.c).
+Chương tới chúng ta sẽ thấy đó là xác nhận CPU bằng hàm `validate_cpu` từ file source [arch/x86/boot/cpu.c](https://github.com/torvalds/linux/blob/master/arch/x86/boot/cpu.c).
 
-It calls the [`check_cpu`](https://github.com/torvalds/linux/blob/master/arch/x86/boot/cpucheck.c#L102) function and passes cpu level and required cpu level to it and checks that the kernel launches on the right cpu level.
+Nó sẽ gọi hàm [`check_cpu`](https://github.com/torvalds/linux/blob/master/arch/x86/boot/cpucheck.c#L102) truyền vào 2 giá trị cpu level hiện tại và cpu level yêu cầu tối thiểu sau đó kiểm tra xem kernel đang chạy ở đúng level hay không.
 ```c
 check_cpu(&cpu_level, &req_level, &err_flags);
 if (cpu_level < req_level) {
@@ -349,14 +349,14 @@ if (cpu_level < req_level) {
     return -1;
 }
 ```
-`check_cpu` checks the cpu's flags, presence of [long mode](http://en.wikipedia.org/wiki/Long_mode) in case of x86_64(64-bit) CPU, checks the processor's vendor and makes preparation for certain vendors like turning off SSE+SSE2 for AMD if they are missing, etc.
+`check_cpu` kiểm tra các cờ cpu's flags, có hay không có [long mode](http://en.wikipedia.org/wiki/Long_mode) trong trường hợp đó là CPU x86_64(64-bit), kiểm tra CPU Vendor và thực hiện các chuẩn bị tương ứng cho Vendor vendors như là tắt SSE+SSE2 trong trường hợp AMD nếu nó không có chẳng hạn, etc.
 
-Memory detection
+Phát hiện bộ nhớ
 --------------------------------------------------------------------------------
 
-The next step is memory detection by the `detect_memory` function. `detect_memory` basically provides a map of available RAM to the cpu. It uses different programming interfaces for memory detection like `0xe820`, `0xe801` and `0x88`. We will see only the implementation of **0xE820** here.
+Bước tiếp theo là phát hiện bộ nhớ bằng hàm `detect_memory`. `detect_memory` về cơ bản cung cấp một sơ đồ của các bộ nhớ RAM mà cpu có thể sử dụng. Nó sử dụng nhiều giao diện lập trình khác nhau để phát hiện bộ nhớ như `0xe820`, `0xe801` và `0x88`. Ở đây, chúng ta chỉ xem xét trường hợp **0xE820** thôi.
 
-Let's look into the `detect_memory_e820` implementation from the [arch/x86/boot/memory.c](https://github.com/torvalds/linux/blob/master/arch/x86/boot/memory.c) source file. First of all, the `detect_memory_e820` function initializes the `biosregs` structure as we saw above and fills registers with special values for the `0xe820` call:
+Cùng nhau nhìn hàm `detect_memory_e820` được viết như thế nào từ file source chứa nó tại [arch/x86/boot/memory.c](https://github.com/torvalds/linux/blob/master/arch/x86/boot/memory.c). Đầu tiên nhất, hàm `detect_memory_e820` khởi tạo một biến của cấu trúc `biosregs` như ta đã thấy ở trên, rồi điền vào các giá trị đặc biệt dành cho lời gọi kiểu `0xe820` này:
 
 ```assembly
     initregs(&ireg);
@@ -366,26 +366,26 @@ Let's look into the `detect_memory_e820` implementation from the [arch/x86/boot/
     ireg.di  = (size_t)&buf;
 ```
 
-* `ax` contains the number of the function (0xe820 in our case)
-* `cx` register contains size of the buffer which will contain data about memory
-* `edx` must contain the `SMAP` magic number
-* `es:di` must contain the address of the buffer which will contain memory data
-* `ebx` has to be zero.
+* `ax` chứa chỉ số của hàm ( trong trường hợp của chúng ta, đó là 0xe820)
+* `cx` chứa kích thước của buffer, nơi mà sẽ chứa dữ thông tin về bộ nhớ 
+* `edx` phải là giá trị ma thuật (magic number) có tên `SMAP`
+* `es:di` phải chứa địa của buffer, nơi sẽ chứa thông tin về bộ nhớ 
+* `ebx` phải là 0.
 
-Next is a loop where data about the memory will be collected. It starts from the call of the `0x15` BIOS interrupt, which writes one line from the address allocation table. For getting the next line we need to call this interrupt again (which we do in the loop). Before the next call `ebx` must contain the value returned previously:
+Sau đó là một vòng lặp để lấy thông tin về bộ nhớ. Nó bắt đầu bằng lời gọi ngắt `0x15` dành cho BIOS, mỗi lần gọi nó sẽ lấy ra một dòng từ bảng cấp phát địa chỉ (address allocation table). Để đọc dòng tiếp theo, chúng ta cần gọi ngắt này một lần nữa (chính vì thế mới có một vòng lặp). Trước lần gọi tiếp theo thanh ghi `ebx` phải chứa giá trị được trả về lúc trước:
 
 ```C
     intcall(0x15, &ireg, &oreg);
     ireg.ebx = oreg.ebx;
 ```
 
-Ultimately, it does iterations in the loop to collect data from the address allocation table and writes this data into the `e820entry` array:
+Cuối cùng thì, nó sẽ lần lượt liệt kê tất cả thông tin từ bảng cấp phát địa chỉ (address allocation table), và ghi ghi dữ liệu có đang vào mang có tên `e820entry`, các thông tin này bao gồm:
 
 * start of memory segment
 * size  of memory segment
 * type of memory segment (which can be reserved, usable and etc...).
 
-You can see the result of this in the `dmesg` output, something like:
+Bạn có thể thấy kết quả kiểu như sau từ dòng lệnh `dmesg`, trông kiểu như thế này:
 
 ```
 [    0.000000] e820: BIOS-provided physical RAM map:
@@ -397,28 +397,28 @@ You can see the result of this in the `dmesg` output, something like:
 [    0.000000] BIOS-e820: [mem 0x00000000fffc0000-0x00000000ffffffff] reserved
 ```
 
-Keyboard initialization
+Khởi tạo bàn phím (Keyboard initialization)
 --------------------------------------------------------------------------------
 
-The next step is the initialization of the keyboard with the call of the [`keyboard_init()`](https://github.com/torvalds/linux/blob/master/arch/x86/boot/main.c#L65) function. At first `keyboard_init` initializes registers using the `initregs` function and calling the [0x16](http://www.ctyme.com/intr/rb-1756.htm) interrupt for getting the keyboard status.
+ Tiếp đây là đến quá trình khởi tạo của bàn phím (keyboard) thông qua lời gọi hàm [`keyboard_init()`](https://github.com/torvalds/linux/blob/master/arch/x86/boot/main.c#L65) tương ứng. Đầu tiên nhất, `keyboard_init` cũng khởi tạo các thanh ghi sử dụng hàm `initregs`, rồi gọi ngắt [0x16](http://www.ctyme.com/intr/rb-1756.htm) để lấy trạng thái của bàn phím.
 ```c
     initregs(&ireg);
     ireg.ah = 0x02;     /* Get keyboard status */
     intcall(0x16, &ireg, &oreg);
     boot_params.kbd_status = oreg.al;
 ```
-After this it calls [0x16](http://www.ctyme.com/intr/rb-1757.htm) again to set repeat rate and delay.
+Sau bước này, nó sẽ gọi lại ngắt [0x16](http://www.ctyme.com/intr/rb-1757.htm) một lần nữa để thiết lập repeat rate và delay.
 ```c
     ireg.ax = 0x0305;   /* Set keyboard repeat rate */
     intcall(0x16, &ireg, NULL);
 ```
 
-Querying
+Lấy cách thông số khác (Querying)
 --------------------------------------------------------------------------------
 
-The next couple of steps are queries for different parameters. We will not dive into details about these queries, but will get back to it in later parts. Let's take a short look at these functions:
+Nhóm các bước tiếp theo là truy vấn các tham số khác. Chúng ta sẽ không đi sau vào chi tiết các tham số này, mà để nó ở những phần sau. Ở đây, ta chỉ nhìn xem qua cá hàm truy vấn này:
 
-The [query_mca](https://github.com/torvalds/linux/blob/master/arch/x86/boot/mca.c#L18) routine calls the [0x15](http://www.ctyme.com/intr/rb-1594.htm) BIOS interrupt to get the machine model number, sub-model number, BIOS revision level, and other hardware-specific attributes:
+Lời gọi [query_mca](https://github.com/torvalds/linux/blob/master/arch/x86/boot/mca.c#L18) gọi ngắt BIOD [0x15](http://www.ctyme.com/intr/rb-1594.htm) để lấy thông tin về số machine model, số sub-model, BIOS revision level, và các thuộc tính dành riêng cho phần cứng khác nữa:
 
 ```c
 int query_mca(void)
@@ -444,7 +444,7 @@ int query_mca(void)
 }
 ```
 
-It fills  the `ah` register with `0xc0` and calls the `0x15` BIOS interruption. After the interrupt execution it checks  the [carry flag](http://en.wikipedia.org/wiki/Carry_flag) and if it is set to 1, the BIOS doesn't support [**MCA**](https://en.wikipedia.org/wiki/Micro_Channel_architecture). If carry flag is set to 0, `ES:BX` will contain a pointer to the system information table, which looks like this:
+ Nó điền thanh ghi `ah` bằng giá trị `0xc0`, rồi gọi ngắt BIOS `0x15`. Sau khi ngắt này được chạy xong, nó sẽ kiểm tra cờ [carry flag](http://en.wikipedia.org/wiki/Carry_flag), nếu cờ này được set bằng 1, tức là BIOS không hỗ trợ [**MCA**](https://en.wikipedia.org/wiki/Micro_Channel_architecture). Nếu cơ này bằng 0, `ES:BX` sẽ chứa địa chỉ trỏ đến bảng thông tin hệ thống (system information table), cái mà nếu có sẽ kiểu như sau:
 
 ```
 Offset  Size    Description
@@ -473,7 +473,7 @@ Offset  Size    Description
  13h  3 BYTEs   "JPN"
  ```
 
-Next we call the `set_fs` routine and pass the value of the `es` register to it. The implementation of `set_fs` is pretty simple:
+ Sau đó, chúng ta gọi hàm `set_fs` truyền giá trị ở thanh ghi `es` cho nó. Thực thi của hàm `set_fs` này khá đơn giản:
 
 ```c
 static inline void set_fs(u16 seg)
@@ -482,17 +482,17 @@ static inline void set_fs(u16 seg)
 }
 ```
 
-This function contains inline assembly which gets the value of the `seg` parameter and puts it into the `fs` register. There are many functions in [boot.h](https://github.com/torvalds/linux/blob/master/arch/x86/boot/boot.h) like `set_fs`, for example `set_gs`, `fs`, `gs` for reading a value in it etc...
+ Hàm này chứa một đoạn assembly inline, có nhiệm vụ lấy giá trị tham số `seg` và đẩy nó vào thanh ghi `fs`. Có rất nhiều hàm trong [boot.h](https://github.com/torvalds/linux/blob/master/arch/x86/boot/boot.h) giống như hàm `set_fs` này, ví dụ `set_gs`, `fs`, `gs` để đọc giá trị trong đó, vân vân...
 
-At the end of `query_mca` it just copies the table pointed to by `es:bx` to the `boot_params.sys_desc_table`.
+Ở cuối hàm `query_mca`, nó đơn giản là copy cái bảng được chỉ bởi `es:bx` vào `boot_params.sys_desc_table` thôi.
 
-The next step is getting [Intel SpeedStep](http://en.wikipedia.org/wiki/SpeedStep) information by calling the `query_ist` function. First of all it checks the CPU level and if it is correct, calls `0x15` for getting info and saves the result to `boot_params`.
+Bước tiếp theo là lấy thông tin về [Intel SpeedStep](http://en.wikipedia.org/wiki/SpeedStep) bằng lời gọi hàm `query_ist`. Đầu tiên nhất, nó sẽ kiểm tra CPU level và nếu đúng, nó gọi ngắt `0x15` để lấy thông tin và lưu kết quả vào `boot_params`.
 
-The following [query_apm_bios](https://github.com/torvalds/linux/blob/master/arch/x86/boot/apm.c#L21) function gets [Advanced Power Management](http://en.wikipedia.org/wiki/Advanced_Power_Management) information from the BIOS. `query_apm_bios` calls the `0x15` BIOS interruption too, but with `ah` = `0x53` to check `APM` installation. After the `0x15` execution, `query_apm_bios` functions check the `PM` signature (it must be `0x504d`), carry flag (it must be 0 if `APM` supported) and value of the `cx` register (if it's 0x02, protected mode interface is supported).
+Hàm [query_apm_bios](https://github.com/torvalds/linux/blob/master/arch/x86/boot/apm.c#L21) sausẽ lấy thông tin [Advanced Power Management](http://en.wikipedia.org/wiki/Advanced_Power_Management) từ BIOS. Hàm `query_apm_bios` này cũng gọi đến ngắt `0x15` trong BIOS, nhưng với giá trị  `ah` = `0x53` để kiểm tra cài đặt `APM`. Sau khi thực hiện xong ngắt `0x15`, hàm `query_apm_bios` kiểm tra chữ kí `PM` signature (nó phải bằng `0x504d`), rồi giá trị carry flag ( phải bằng 0 nếu `APM` được hỗ trợ) và giá trị của thanh ghi `cx`(nếu nó là 0x02, giao diện cho protected mode được hỗ trợ).
 
-Next it calls `0x15` again, but with `ax = 0x5304` for disconnecting the `APM` interface and connecting the 32-bit protected mode interface. In the end it fills `boot_params.apm_bios_info` with values obtained from the BIOS.
+Sau đó, nó gọi ngắt `0x15` một lần nữa, nhưng với giá trị `ax = 0x5304` để ngắt kết nối giao diện `APM`, và chuyển sang giao diện ở chế độ 32-bit protected mode. Cuối cùng, nó điền giá trị cho biến `boot_params.apm_bios_info` từ các giá trị nó lấy được từ BIOS.
 
-Note that `query_apm_bios` will be executed only if `CONFIG_APM` or `CONFIG_APM_MODULE` was set in the configuration file:
+Chú ý là, hàm `query_apm_bios` chỉ được thực hiện nếu các giá trị cấu hình `CONFIG_APM` hoặc `CONFIG_APM_MODULE` được định nghĩa trong file cấu hình (của kernel):
 
 ```C
 #if defined(CONFIG_APM) || defined(CONFIG_APM_MODULE)
@@ -500,11 +500,11 @@ Note that `query_apm_bios` will be executed only if `CONFIG_APM` or `CONFIG_APM_
 #endif
 ```
 
-The last is the [`query_edd`](https://github.com/torvalds/linux/blob/master/arch/x86/boot/edd.c#L122) function, which queries `Enhanced Disk Drive` information from the BIOS. Let's look into the `query_edd` implementation.
+Cuối cùng hàm [`query_edd`](https://github.com/torvalds/linux/blob/master/arch/x86/boot/edd.c#L122), sẽ lấy thông tin `Enhanced Disk Drive` (thông tin thêm về Drive) từ BIOS. Chúng ta sẽ cùng xem hàm này `query_edd` một chút.
 
-First of all it reads the [edd](https://github.com/torvalds/linux/blob/master/Documentation/kernel-parameters.txt#L1023) option from the kernel's command line and if it was set to `off` then `query_edd` just returns.
+Đầu tiên nhất, nó đọc giá trị option [edd](https://github.com/torvalds/linux/blob/master/Documentation/kernel-parameters.txt#L1023) từ tham số dòng lệnh kernel, nếu giá trị này được set là `off` thì hàm `query_edd` trả về luôn.
 
-If EDD is enabled, `query_edd` goes over BIOS-supported hard disks and queries EDD information in the following loop:
+Nếu EDD được bật, `query_edd` đi qua các ổ cứng được BIOS hỗ trợ và lấy thông tin EDD bằng vòng lặp sau:
 
 ```C
 for (devno = 0x80; devno < 0x80+EDD_MBR_SIG_MAX; devno++) {
@@ -519,14 +519,14 @@ for (devno = 0x80; devno < 0x80+EDD_MBR_SIG_MAX; devno++) {
     }
 ```
 
-where `0x80` is the first hard drive and the value of `EDD_MBR_SIG_MAX` macro is 16. It collects data into the array of [edd_info](https://github.com/torvalds/linux/blob/master/include/uapi/linux/edd.h#L172) structures. `get_edd_info` checks that EDD is present by invoking the `0x13` interrupt with `ah` as `0x41` and if EDD is present, `get_edd_info` again calls the `0x13` interrupt, but with `ah` as `0x48` and `si` containing the address of the buffer where EDD information will be stored.
+Giá trị vị trí `0x80` là chỗ của ổ cứng đầu tiên và giá trị của `EDD_MBR_SIG_MAX` là 16. Vòng lặp nãy sẽ tổng hợp các thông tin cho vào mảng của cấu trúc [edd_info](https://github.com/torvalds/linux/blob/master/include/uapi/linux/edd.h#L172). Hàm `get_edd_info` sẽ kiểm tra xem EDD có tồn tại hay không bằng ngắt `0x13` với tham số `ah` được gán giá trị `0x41` nếu EDD tồn tại, hàm `get_edd_info` lại gọi ngắt `0x13` một lần nữa, nhưng với tham số `ah` được gán giá trị `0x48` và `si` chứa địa chỉ của buffer mà EDD được lưu.
 
-Conclusion
+Phần kết
 --------------------------------------------------------------------------------
 
-This is the end of the second part about Linux kernel insides. In the next part we will see video mode setting and the rest of preparations before transition to protected mode and directly transitioning into it.
+ Đây là đoạn kết của phần 2 về những thứ bên trong Linux kernel. Ở phần tiếp theo, chúng ta sẽ xem xét các thiết lập video mode và những chuẩn bị còn lại trước khi chuyển sang protected mode và quá trình chuyển đổi trực tiếp sang nó.
 
-If you have any questions or suggestions write me a comment or ping me at [twitter](https://twitter.com/0xAX).
+Nếu bạn có bất cứ câu hỏi nào, hãy để lại comment hoặc ping cho tôi trên [twitter](https://twitter.com/0xAX).
 
 **Please note that English is not my first language, And I am really sorry for any inconvenience. If you find any mistakes please send me a PR to [linux-insides](https://github.com/0xAX/linux-internals).**
 

@@ -1,32 +1,32 @@
-Kernel booting process. Part 1.
+ Quá trình khởi động vào nhân. Phần 1.
 ================================================================================
 
-From the bootloader to the kernel
+ Từ bootloader đến nhân 
 --------------------------------------------------------------------------------
 
-If you have been reading my previous [blog posts](http://0xax.blogspot.com/search/label/asm), then you can see that, for some time, I have been starting to get involved in low-level programming. I have written some posts about x86_64 assembly programming for Linux and, at the same time, I have also started to dive into the Linux source code. I have a great interest in understanding how low-level things work, how programs run on my computer, how are they located in memory, how the kernel manages processes & memory, how the network stack works at a low level, and many many other things. So, I have decided to write yet another series of posts about the Linux kernel for **x86_64**.
+ Nếu bạn đọc những bài viết trước đây trong [blog posts](http://0xax.blogspot.com/search/label/asm) của thôi, bạn có thể thấy rằng, thỉnh thoảng, tôi bắt đầu từ mức lập trình mức thấp (low-level programming). Tôi cũng viết một vài bài cho lập trình assembly x86_64 cho Linux. Cũng thời gian đó, tôi cũng bắt đầu lao vào tìm hiểu source code của Linux. Tôi thực sự có hứng thú với việc tìm hiểu về việc những thứ mức tập (low-level) làm việc như thế nào, làm thế nào một chương trình chạy được trên máy tính, chúng được xếp lên bộ nhớ như thế nào, làm thế nào nhân quản lý tiến trình (processes) và bộ nhớ (memory), các tầng mạng (network stack) làm việc ở mức thấp (low level), và rất nhiều thứ khác nữa. Chính vì thế, tôi quyết định viết một series bài viết này, cái liên quan đến nhân Linux kernel cho kiến trúc **x86_64**.
 
-Note that I'm not a professional kernel hacker and I don't write code for the kernel at work. It's just a hobby. I just like low-level stuff, and it is interesting for me to see how these things work. So if you notice anything confusing, or if you have any questions/remarks, ping me on twitter [0xAX](https://twitter.com/0xAX), drop me an [email](anotherworldofworld@gmail.com) or just create an [issue](https://github.com/0xAX/linux-insides/issues/new). I appreciate it. All posts will also be accessible at [linux-insides](https://github.com/0xAX/linux-insides) and, if you find something wrong with my English or the post content, feel free to send a pull request.
+ Chú ý rằng là, tôi không phải một hacker nhân chuyên nghiệp, và tôi không viết code cho nhân trong công việc hàng ngày của mình. Nó đơn giản là thích thì tìm hiểu thôi (hobby). Tôi thích những thứ ở mức thấp (low-level stuff), và tôi quan tâm đến chúng làm việc như thế nào. Vì thế, nếu bạn gặp bất cứ sự khó hiểu nào trong các bài viết, hoặc có bất cứ câu hỏi, nhắc nhở nào, hãy ping tôi trên twitter [0xAX](https://twitter.com/0xAX), gửi đến địa chỉ [email](anotherworldofworld@gmail.com) hoặc đơn giản là tạo một [issue](https://github.com/0xAX/linux-insides/issues/new) trên github. Tôi đánh giá cao chúng. Tất cả các bài viết được lưu trữ trên github tại [linux-insides](https://github.com/0xAX/linux-insides), và cuối cùng nếu bạn có bạn tìm ra bất cứ lỗi sai về English trong lỗi dung bài viết, hãy thoải mái yêu cầu nha.
 
 
-*Note that this isn't official documentation, just learning and sharing knowledge.*
+*Chú ý rằng, đây không phải là tài liệu chính thức, đây chỉ là học và chia sẻ lại kiến thức thôi.*
 
-**Required knowledge**
+** Kiến thức yêu cầu để hiểu các bài viết **
 
-* Understanding C code
-* Understanding assembly code (AT&T syntax)
+* Hiểu code C
+* Hiểu code assembly (dạng AT&T)
 
-Anyway, if you just start to learn some tools, I will try to explain some parts during this and the following posts. Alright, this is the end of the simple introduction, and now we can start to dive into the kernel and low-level stuff.
+ Nào, nếu bạn sắn sàng để học thêm vài công cụ, tôi sẽ cố gắng giải thích chi tiết trong các bài viết sau đây. Đến đây thôi, là kết thúc phần giới thiệu đơn giản, giờ là lúc bắt đầu lao vào nhân (kernel) và những thứ bên dưới (low-level stuff).
 
-All code is actually for the 3.18 kernel. If there are changes, I will update the posts accordingly.
+ Hầu hết code của nhân được trích dẫn là phiên bản 3.18. Nếu có bất cứ sự thay đổi nào, tôi sẽ cập nhật trong bài viết tương ứng.
 
-The Magical Power Button, What happens next?
+ Sau nút nguồn ma thuật (magic power button), chuyện gì xảy ra sau đó?
 --------------------------------------------------------------------------------
 
-Although this is a series of posts about the Linux kernel, we will not be starting from the kernel code - at least not, in this paragraph. As soon as you press the magical power button on your laptop or desktop computer, it starts working. The motherboard sends a signal to the [power supply](https://en.wikipedia.org/wiki/Power_supply). After receiving the signal, the power supply provides the proper amount of electricity to the computer. Once the motherboard receives the [power good signal](https://en.wikipedia.org/wiki/Power_good_signal), it tries to start the CPU. The CPU resets all leftover data in its registers and sets up predefined values for each of them.
+ Mặc dù là series về nhân Linux, nhưng chúng ta sẽ chưa bắt đầu xem code nhân ngay - ít nhất là trong đoạn này. Ngay khi bạn nhấn nút nguồn trên máy tính xách tay hoặc máy để bàn, thì chúng sẽ bắt đầu chạy. Bo mạch chủ (motherboar) gửi tín hiệu đến bộ cấp nguồn [power supply](https://en.wikipedia.org/wiki/Power_supply). Sau khi nhận được tín hiệu, bộ cấp nguồn sẽ cung cấp một lượng điện phù hợp cho máy tính. Một khi bo mạch chủ nhận được [power good signal](https://en.wikipedia.org/wiki/Power_good_signal), nó sẽ cố gắng khởi động CPU. CPU sẽ reset tất cả các thanh ghi của nó, rồi đưa giá trị mặc định (đã được định nghĩa trước) vào.
 
 
-[80386](https://en.wikipedia.org/wiki/Intel_80386) and later CPUs define the following predefined data in CPU registers after the computer resets:
+ Bộ xử lý [80386](https://en.wikipedia.org/wiki/Intel_80386) và các CPU sau này có một bộ các giá trị định nghĩa trước cho các thanh ghi sau khi máy tính được reset:
 
 ```
 IP          0xfff0
@@ -34,40 +34,40 @@ CS selector 0xf000
 CS base     0xffff0000
 ```
 
-The processor starts working in [real mode](https://en.wikipedia.org/wiki/Real_mode). Let's back up a little and try to understand memory segmentation in this mode. Real mode is supported on all x86-compatible processors, from the [8086](https://en.wikipedia.org/wiki/Intel_8086) all the way to the modern Intel 64-bit CPUs. The 8086 processor has a 20-bit address bus, which means that it could work with a 0-0xFFFFF address space (1 megabyte). But it only has 16-bit registers, which have a maximum address of 2^16 - 1 or 0xffff (64 kilobytes). [Memory segmentation](http://en.wikipedia.org/wiki/Memory_segmentation) is used to make use of all the address space available. All memory is divided into small, fixed-size segments of 65536 bytes (64 KB). Since we cannot address memory above 64 KB with 16 bit registers, an alternate method is devised. An address consists of two parts: a segment selector, which has a base address, and an offset from this base address. In real mode, the associated base address of a segment selector is `Segment Selector * 16`. Thus, to get a physical address in memory, we need to multiply the segment selector part by 16 and add the offset:
+Tiếp đó, CPU sẽ bắt đầu làm việc ở [real mode](https://en.wikipedia.org/wiki/Real_mode). Chúng ta dừng lại một chút để hiểu cấu trúc bộ nhớ (understand memory segmentation) ở mode này. Mode thực (Real mode) được hỗ trợ trên tất cả các bộ xử lý tương thích với x86 (x86-compatible), từ [8086](https://en.wikipedia.org/wiki/Intel_8086) cho đế các bộ xử lý 64-bit hiện tại của Intel 64-bit. Bộ xử lý 8086 có bus địa chỉ độ dài 20-bit, có nghĩa là chúng có thể làm việc trong không gian địa chỉ từ 0-0xFFFFF (tức là 1 megabyte). Nhưng thanh ghi chỉ có độ dài 16-bit, tức là địa chỉ lớn nhất chứa có thể chứa trong 1 thanh ghi là 2^16 - 1 hay 0xffff ( tức 64 kilobytes). [Memory segmentation](http://en.wikipedia.org/wiki/Memory_segmentation) được sử dụng để tận dụng hết không gian địa chỉ có thể có. Toàn bộ bộ nhớ sẽ được chia nhỏ ra, thành các đoạn (segments) có độ dài 65536 bytes ( hay 64 KB). Vì chúng ta không thể đánh địa chỉ bộ nhớ lớn hơn 64 KB  với thanh ghi độ dài 16 bit được, và giải phải như vậy đã được nghĩ ra. Một địa chỉ sẽ chứa 2 phần: segment (segment selector), sử dụng để tính địa chỉ cơ bản (base address), phần bù (offset) tính từ vị trí của địa chỉ cơ bản. Trong chế độ thực (real mode), địa chỉ cơ bản (base address) tương ứng vớisegment (segment selector) được tính bằng `Giá trị Segment Selector * 16`. Vì thế, để tính địa chỉ thực trên bộ nhớ, ta cần nhân giá trị segment với 16 rồi cộng với giá trị phần bù (offset):
 
 ```
 PhysicalAddress = Segment Selector * 16 + Offset
 ```
 
-For example, if `CS:IP` is `0x2000:0x0010`, then the corresponding physical address will be:
+Ví dụ, nếu CS (giá trị segment), và IP (giá trị offset) có giá trị tương ứng `CS:IP` bằng `0x2000:0x0010`, thì địa chỉ vật lý tương ứng sẽ được tính như sau:
 
 ```python
 >>> hex((0x2000 << 4) + 0x0010)
 '0x20010'
 ```
 
-But, if we take the largest segment selector and offset, `0xffff:0xffff`, then the resulting address will be:
+Nhưng, nếu ta lấy giá trị lớn nhất của cả segment selector và offset, `0xffff:0xffff`, thì địa chỉ tính được sẽ như sau:
 
 ```python
 >>> hex((0xffff << 4) + 0xffff)
 '0x10ffef'
 ```
 
-which is 65520 bytes past the first megabyte. Since only one megabyte is accessible in real mode, `0x10ffef` becomes `0x00ffef` with disabled [A20](https://en.wikipedia.org/wiki/A20_line).
+Tức là kéo dài đến 65520 sau Megabyte đầu tiên. Vì chỉ được phép truy cập 1MB trong real mode, phần địa chỉ tính tđến `0x10ffef` có độ dài `0x00ffef` sẽ bị vô hiệu hóa [A20](https://en.wikipedia.org/wiki/A20_line).
 
-Ok, now we know about real mode and memory addressing. Let's get back to discussing register values after reset:
+Ok, giờ chúng ta đã biết về real mode và cách đánh địa chỉ bộ nhớ (memory addressing). Nào, cùng quay trở lại thảo luận về giá trị thanh ghi sau khi CPU được reset:
 
-The `CS` register consists of two parts: the visible segment selector, and the hidden base address. While the base address is normally formed by multiplying the segment selector value by 16, during a hardware reset the segment selector in the CS register is loaded with 0xf000 and the base address is loaded with 0xffff0000; the processor uses this special base address until `CS` is changed.
+Thanh ghi `CS` đúng ra chứa 2 phần: phần thấy được segment selector, và địa chỉ cơ bản (base address) ẩn. Địa chỉ cơ bản thông thương được tính bằng tích của segment selector cho 16, trong quá trình reset, thì giá trị segment selector trong thanh ghi CS được đưa vào giá trị 0xf000 và địa chỉ cơ bản (base address) được coi là 0xffff0000; bộ xử lý sẽ sử dụng giá trị địa chỉ đặc biệt này cho đến khi giá trị thanh ghi `CS` bị thanh đổi.
 
-The starting address is formed by adding the base address to the value in the EIP register:
+ Địa chỉ bắt đầu được tính bằng cách cộng địa chỉ cơ bản với giá trị trong thanh ghi EIP:
 
 ```python
 >>> 0xffff0000 + 0xfff0
 '0xfffffff0'
 ```
 
-We get `0xfffffff0`, which is 16 bytes below 4GB. This point is called the [Reset vector](http://en.wikipedia.org/wiki/Reset_vector). This is the memory location at which the CPU expects to find the first instruction to execute after reset. It contains a [jump](http://en.wikipedia.org/wiki/JMP_%28x86_instruction%29) (`jmp`) instruction that usually points to the BIOS entry point. For example, if we look in the [coreboot](http://www.coreboot.org/) source code, we see:
+ Chúng ta sẽ có giá trị địa chỉ `0xfffffff0`, địa chỉ này bắt đầu cho đoạn 16 bytes cuối của 4GB đầu tiên. Điểm này được gọi là [Reset vector](http://en.wikipedia.org/wiki/Reset_vector). Đây là chỉ trên bộ nhớ mà CPU sẽ thực hiện chạy câu lệnh máy đầu tiên sau khi nó reset. Ở đó, chứa một lệnh [jump](http://en.wikipedia.org/wiki/JMP_%28x86_instruction%29) (kí hiệu là `jmp`), thông thường sẽ trỏ đến điểm đầu vào (vị trí đầu tiên chứa mã lệnh) của BIOS.  Ví dụ, nếu nhìn vào mã nguồn của [coreboot](http://www.coreboot.org/), chúng ta có thể thấy:
 
 ```assembly
     .section ".reset"
@@ -79,7 +79,7 @@ reset_vector:
     ...
 ```
 
-Here we can see the `jmp` instruction [opcode](http://ref.x86asm.net/coder32.html#xE9), which is 0xe9, and its destination address at `_start - ( . + 2)`. We can also see that the `reset` section is 16 bytes, and that it starts at `0xfffffff0`:
+Như ở trên, chúng ta có thấy lệnh `jmp` với mã [opcode](http://ref.x86asm.net/coder32.html#xE9) là 0xe9, lệnh này sẽ nhảy đến địa chỉ `_start - ( . + 2)`. Phần code đoạn `reset` này là 16 bytes, và nó bắt đầu ở vị trí `0xfffffff0`:
 
 ```
 SECTIONS {
@@ -93,11 +93,11 @@ SECTIONS {
 }
 ```
 
-Now the BIOS starts; after initializing and checking the hardware, the BIOS needs to find a bootable device. A boot order is stored in the BIOS configuration, controlling which devices the BIOS attempts to boot from. When attempting to boot from a hard drive, the BIOS tries to find a boot sector. On hard drives partitioned with an MBR partition layout, the boot sector is stored in the first 446 bytes of the first sector, where each sector is 512 bytes. The final two bytes of the first sector are `0x55` and `0xaa`, which designates to the BIOS that this device is bootable. For example:
+ Bây giờ thì, BIOS được chạy; Sau khi thực hiện khởi tạo và kiểm tra phần cứng, BIOS cần tìm một thiết bị có thể kboot được (bootable device). Thứ tự boot được lưu trong cấu hình BIOS (BIOS configuration), điều khiển thiết thứ tự các thiết bị được BIOS tìm và thực hiện boot. Khi thực hiện boot từ ổ đĩa cứng (hard drive), BIOS sẽ cố gắng tìm một boot sector. Trên ổ đĩa cứng, thường có một bảng gọi là MBR, chứa vị trí các phân vùng, nằm ở phần được gọi là boot sector là 446 bytes của sector đầu tiên, mỗi sector sẽ có 512 bytes. 2 byte cuối của sector đầu tiên (tưc là 510, 511) là `0x55` và `0xaa`, cái sẽ cho BIOS biết rằng đây thiết bị chứa sector đó có thể boot được. Ví dụ:
 
 ```assembly
 ;
-; Note: this example is written in Intel Assembly syntax
+; Chú ý: Mã của ví dụ này viết theo cú pháp Assembly của Intel
 ;
 [BITS 16]
 [ORG  0x7c00]
@@ -117,78 +117,78 @@ db 0x55
 db 0xaa
 ```
 
-Build and run this with:
+Build và chạy source trên bằng câu lệnh sau:
 
 ```
 nasm -f bin boot.nasm && qemu-system-x86_64 boot
 ```
 
-This will instruct [QEMU](http://qemu.org) to use the `boot` binary that we just built as a disk image. Since the binary generated by the assembly code above fulfills the requirements of the boot sector (the origin is set to `0x7c00` and we end with the magic sequence), QEMU will treat the binary as the master boot record (MBR) of a disk image.
+ Câu lệnh này sẽ bảo [QEMU](http://qemu.org) hãy sử dụng file nhị phân có tên là `boot` như là một ảnh đĩa (hay là ổ cứng của nó). Vì binary được sinh ra từ đoạn code Assembly ở trên, nên nó sẽ thỏa mãn yêu cầu về boot sector ( điền tất cả bằng giá trị `0x7c00`, cuối cùng là chuỗi ma thuật 0x55, 0xaa (magic sequence)), QEMU sẽ "bị hiểu" đoạn đó như là MBR (master boot record) của ảnh đĩa (disk image).
 
-You will see:
+Bạn sẽ thấy ở hình dưới đây:
 
 ![Simple bootloader which prints only `!`](http://oi60.tinypic.com/2qbwup0.jpg)
 
-In this example we can see that the code will be executed in 16 bit real mode and will start at `0x7c00` in memory. After starting, it calls the [0x10](http://www.ctyme.com/intr/rb-0106.htm) interrupt, which just prints the `!` symbol; it fills the remaining 510 bytes with zeros and finishes with the two magic bytes `0xaa` and `0x55`.
+Trong ví dụ này, chúng ta thấy rằng, code được chạy trong chế 16 bit real mode và bắt đầu từ địa chỉ `0x7c00` trên bộ nhớ. Sau khi bắt đầu chạy, nó gọi ngắt [0x10](http://www.ctyme.com/intr/rb-0106.htm), cái đơn giản chỉ để in ra kí tự  `!`; 510 bytes tiếp theo được điền hết là zero, cuối cùng là 2 byte ma thuật `0xaa` and `0x55`.
 
-You can see a binary dump of this using the `objdump` utility:
+Bạn có thể xem nội dung đoạn binary được nói ở trên bằng công cụ có tên `objdump`:
 
 ```
 nasm -f bin boot.nasm
 objdump -D -b binary -mi386 -Maddr16,data16,intel boot
 ```
 
-A real-world boot sector has code for continuing the boot process and a partition table instead of a bunch of 0's and an exclamation mark :) From this point onwards, the BIOS hands over control to the bootloader.
+ Một boot sector thật sẽ code xử lý để tiếp tục quá trình boot rồi một bảng phân vùng thay vì một mớ giá trị zero, và dấu chấm cảm như ở trên :) Từ thời điểm này, BIOS sẽ trao quyền điều khiển cho bootloader.
 
-**NOTE**: As explained above, the CPU is in real mode; in real mode, calculating the physical address in memory is done as follows:
+**NOTE**: Như đã giải thích ở trên, CPU nằm trong real mode; mà trong real mode, việc tính toán địa chỉ bộ nhớ được thực hiện theo công thức sau:
 
 ```
 PhysicalAddress = Segment Selector * 16 + Offset
 ```
 
-just as explained before. We have only 16 bit general purpose registers; the maximum value of a 16 bit register is `0xffff`, so if we take the largest values, the result will be:
+ Như đã giải thích ở phía trên rồi. Chúng ta chỉ có những thanh ghi 16 bit mà thôi; giá trị của một thanh ghi 6 bit là `0xffff`, vì thế, giá trị địa chỉ lớn nhất mà thanh ghi có thể miêu tả:
 
 ```python
 >>> hex((0xffff * 16) + 0xffff)
 '0x10ffef'
 ```
 
-where `0x10ffef` is equal to `1MB + 64KB - 16b`. A [8086](https://en.wikipedia.org/wiki/Intel_8086) processor (which was the first processor with real mode), in contrast, has a 20 bit address line. Since `2^20 = 1048576` is 1MB, this means that the actual available memory is 1MB.
+Giá trị `0x10ffef` tương đương với `1MB + 64KB - 16b`. Một bộ xử lý [8086](https://en.wikipedia.org/wiki/Intel_8086) (là bộ xử lý đầu tiên được có real mode), thế nhưng ngược lại, chỉ có 20 đường bit địa chỉ mà thôi. Vì `2^20 = 1048576` bằng 1MB, điều này có nghĩa rằng số bộ nhớ thực sự nó có thể sử dụng là 1MB.
 
-General real mode's memory map is as follows:
+ Bản đồ phân chia bộ nhớ (memory map) trong real mode được miêu tả như sau:
 
 ```
-0x00000000 - 0x000003FF - Real Mode Interrupt Vector Table
-0x00000400 - 0x000004FF - BIOS Data Area
-0x00000500 - 0x00007BFF - Unused
-0x00007C00 - 0x00007DFF - Our Bootloader
-0x00007E00 - 0x0009FFFF - Unused
-0x000A0000 - 0x000BFFFF - Video RAM (VRAM) Memory
-0x000B0000 - 0x000B7777 - Monochrome Video Memory
-0x000B8000 - 0x000BFFFF - Color Video Memory
+0x00000000 - 0x000003FF - Bảng ngắt trong chế độ Readl Mode (Real Mode Interrupt Vector Table)
+0x00000400 - 0x000004FF - Vùng dữ liệu của BIOS (BIOS Data Area)
+0x00000500 - 0x00007BFF - Không sử dụng (Unused)
+0x00007C00 - 0x00007DFF - Dành cho bootloader (Our Bootloader)
+0x00007E00 - 0x0009FFFF - Không sử dụng (Unused)
+0x000A0000 - 0x000BFFFF - RAM dành cho Video (Video RAM (VRAM) Memory)
+0x000B0000 - 0x000B7777 - Bộ nhớ dành cho chế độ Video đơn sắc (Monochrome Video Memory)
+0x000B8000 - 0x000BFFFF - Bộ nhớ dành cho video màu (Color Video Memory)
 0x000C0000 - 0x000C7FFF - Video ROM BIOS
 0x000C8000 - 0x000EFFFF - BIOS Shadow Area
-0x000F0000 - 0x000FFFFF - System BIOS
+0x000F0000 - 0x000FFFFF - BIOS hệ thống (System BIOS)
 ```
 
-In the beginning of this post, I wrote that the first instruction executed by the CPU is located at address `0xFFFFFFF0`, which is much larger than `0xFFFFF` (1MB). How can the CPU access this address in real mode? The answer is in the [coreboot](http://www.coreboot.org/Developer_Manual/Memory_map) documentation:
+Trong đoạn mở đầu của bài này, tôi đã viết rằng, lệnh đầu tiên được CPU chạy nằm ở địa chỉ `0xFFFFFFF0`, tức là nó còn lớn hơn của `0xFFFFF` (1MB). Vậy thì làm thế nào CPU truy cập được địa chỉ này trong chế độ real mode? Câu trả lời nằm ở tài liệu của [coreboot](http://www.coreboot.org/Developer_Manual/Memory_map):
 
 ```
-0xFFFE_0000 - 0xFFFF_FFFF: 128 kilobyte ROM mapped into address space
+0xFFFE_0000 - 0xFFFF_FFFF: 128 kilobyte của ROM được map vào không gian địa chỉ (128 kilobyte ROM mapped into address space)
 ```
 
-At the start of execution, the BIOS is not in RAM, but in ROM.
+Ở thời điểm bắt đầu chạy, BIOS không nằm trên RAM, mà nằm trên ROM.
 
 Bootloader
 --------------------------------------------------------------------------------
 
-There are a number of bootloaders that can boot Linux, such as [GRUB 2](https://www.gnu.org/software/grub/) and [syslinux](http://www.syslinux.org/wiki/index.php/The_Syslinux_Project). The Linux kernel has a [Boot protocol](https://github.com/torvalds/linux/blob/master/Documentation/x86/boot.txt) which specifies the requirements for a bootloader to implement Linux support. This example will describe GRUB 2.
+ Có một cơ số các bootloader có thể boot Linux, chẳng hạn [GRUB 2](https://www.gnu.org/software/grub/) và [syslinux](http://www.syslinux.org/wiki/index.php/The_Syslinux_Project). Nhân Linux có một cái gọi là [Boot protocol](https://github.com/torvalds/linux/blob/master/Documentation/x86/boot.txt), cái quy định những yêu cầu dành cho một bootloader khi định hỗ trợ Linux. Ví dụ này sẽ miêu tả về GRUB2.
 
-Continuing from before, now that the BIOS has chosen a boot device and transferred control to the boot sector code, execution starts from [boot.img](http://git.savannah.gnu.org/gitweb/?p=grub.git;a=blob;f=grub-core/boot/i386/pc/boot.S;hb=HEAD). This code is very simple, due to the limited amount of space available, and contains a pointer which is used to jump to the location of GRUB 2's core image. The core image begins with [diskboot.img](http://git.savannah.gnu.org/gitweb/?p=grub.git;a=blob;f=grub-core/boot/i386/pc/diskboot.S;hb=HEAD), which is usually stored immediately after the first sector in the unused space before the first partition. The above code loads the rest of the core image, which contains GRUB 2's kernel and drivers for handling filesystems, into memory. After loading the rest of the core image, it executes [grub_main](http://git.savannah.gnu.org/gitweb/?p=grub.git;a=blob;f=grub-core/kern/main.c).
+ Tiếp tục của nội dung bên trên, làm thế nào BIOS chọn thiết bị boot và chuyển quyền điều khiển (transferred control) cho đoạn code được đặt trong boot sector (boot sector code), việc chạy được bắt đầu từ [boot.img](http://git.savannah.gnu.org/gitweb/?p=grub.git;a=blob;f=grub-core/boot/i386/pc/boot.S;hb=HEAD). Đoạn code này rất đơn giản, vì sự giới hạn của không gian trống trong bộ nhớ, nó chỉ chứa một pointer nhảy đến vị trí của core image của GRUB 2 (GRUB 2's core image). Các core image này bắt đầu bằng [diskboot.img](http://git.savannah.gnu.org/gitweb/?p=grub.git;a=blob;f=grub-core/boot/i386/pc/diskboot.S;hb=HEAD), thường được lưu ngay sau sector đầu tiên của vùng trống không sử dụng cho đến trước phần vùng đầu tiên. Đoạn code chứa trong phần đầu của core image (diskboot.img) core image sẽ thực hiện load phần còn lại vào bộ nhớ, cái phần mà chứa nhân của GRUB 2's kernel các drivers để hiểu hệ thống file (filesystems). Sau khi load phần còn lại này, nó sẽ chạy (nhảy đến) [grub_main](http://git.savannah.gnu.org/gitweb/?p=grub.git;a=blob;f=grub-core/kern/main.c).
 
-`grub_main` initializes the console, gets the base address for modules, sets the root device, loads/parses the grub configuration file, loads modules, etc. At the end of execution, `grub_main` moves grub to normal mode. `grub_normal_execute` (from `grub-core/normal/main.c`) completes the final preparations and shows a menu to select an operating system. When we select one of the grub menu entries, `grub_menu_execute_entry` runs, executing the grub `boot` command and booting the selected operating system.
+ Hàm `grub_main` khởi tạo console ( tức là cái cho phép nhận phím, hiển thị màn hình mà ta vẫn thấy), lấy thông tin địa chỉ của các module, thiết lập thiết bị root (root device), đọc/hiểu (loads/parses) file cấu hình grub, load các module vào, etc. Ở xử lý cuối của hàm, `grub_main` chuyển sang chạy ở chế độ normal mode. `grub_normal_execute` (from `grub-core/normal/main.c`) để coi như hoàn thành bước chuẩn bị cuối cùng, sau đó hiển thị menu cho phép chọn hệ điều hành. Khi chúng ta chọn một trong những menu đó, hàm `grub_menu_execute_entry` được chạy, thực hiện lệnh `boot` của GRUB để boot vào hệ điều hành được chọn.
 
-As we can read in the kernel boot protocol, the bootloader must read and fill some fields of the kernel setup header, which starts at the `0x01f1` offset from the kernel setup code. The kernel header [arch/x86/boot/header.S](https://github.com/torvalds/linux/blob/master/arch/x86/boot/header.S) starts from:
+ Bạn có thể đọc trong giao thức khởi động nhân Linux (kernel boot protocol), bootloader phải đọc/điền giá trị cho một số trường trong thông số thiết lập kernel (kernel setup header), cái sẽ nằm ở vị trí có offset `0x01f1` tính từ phần đầu của đoạn code thiết lập kernel. Header dành cho kernel [arch/x86/boot/header.S](https://github.com/torvalds/linux/blob/master/arch/x86/boot/header.S) được mô tả như sau:
 
 ```assembly
     .globl hdr
@@ -202,25 +202,25 @@ hdr:
     boot_flag:   .word 0xAA55
 ```
 
-The bootloader must fill this and the rest of the headers (which are only marked as being type `write` in the Linux boot protocol, such as in [this example](https://github.com/torvalds/linux/blob/master/Documentation/x86/boot.txt#L354)) with values which it has either received from the  command line or calculated. (We will not go over full descriptions and explanations for all fields of the kernel setup header now but instead when the discuss how kernel uses them; you can find a description of all fields in the [boot protocol](https://github.com/torvalds/linux/blob/master/Documentation/x86/boot.txt#L156).)
+Bootloader có nhiệm vụ điền các giá trị thấy ở trên, còn các giá trị khác ( cái được đánh dấu có kiểu `write` trong giao thức boot Linux, như trong [ví dụ](https://github.com/torvalds/linux/blob/master/Documentation/x86/boot.txt#L354)) này chẳng hạn, giá trị hoặc được nhận từ tham số truyền hoặc phải được tính. (Chúng ta không đi vào chi tiết các trường của phần header thiết lập nhân, thay vào đó chúng ta sẽ xem xét nhân sử dụng những giá trị đó như thế nào; bạn có thể tìm hiểu chi tiết các trường đó tại tài liệu [boot protocol](https://github.com/torvalds/linux/blob/master/Documentation/x86/boot.txt#L156).)
 
-As we can see in the kernel boot protocol, the memory map will be the following after loading the kernel:
+Như bạn thấy trong giao thức boot nhân, cấu trúc bộ nhớ (memory map) sẽ được sắp xếp dưới đâu sau khi load nhân:
 
 ```shell
          | Protected-mode kernel  |
 100000   +------------------------+
          | I/O memory hole        |
 0A0000   +------------------------+
-         | Reserved for BIOS      | Leave as much as possible unused
+         | Reserved for BIOS      | Phần không sử dụng sẽ còn lại nhiều nhất có thể 
          ~                        ~
-         | Command line           | (Can also be below the X+10000 mark)
+         | Command line           | (Có thể nằm bên dưới vị trí X+10000)
 X+10000  +------------------------+
-         | Stack/heap             | For use by the kernel real-mode code.
+         | Stack/heap             | Được sử dụng bởi code nhân ở chế độ real-mode.
 X+08000  +------------------------+
-         | Kernel setup           | The kernel real-mode code.
-         | Kernel boot sector     | The kernel legacy boot sector.
+         | Kernel setup           | Code của nhân khi chạy ở chế độ real-mode.
+         | Kernel boot sector     | Nhân cho loại boot sector cũ.
        X +------------------------+
-         | Boot loader            | <- Boot sector entry point 0x7C00
+         | Boot loader            | <- Điểm vào của boot sector vị trí 0x7C00
 001000   +------------------------+
          | Reserved for MBR/BIOS  |
 000800   +------------------------+
@@ -231,34 +231,34 @@ X+08000  +------------------------+
 
 ```
 
-So, when the bootloader transfers control to the kernel, it starts at:
+Dựa vào sơ đồ trên, khi bootloader chuyển quyền điều khiển cho nhân, nó sẽ bắt đầu ở vị trí:
 
 ```
 X + sizeof(KernelBootSector) + 1
 ```
 
-where `X` is the address of the kernel boot sector being loaded. In my case, `X` is `0x10000`, as we can see in a memory dump:
+Ở đây, `X` là địa chỉ mà sector boot nhân được load vào. Trong máy của tôi, `X` bằng `0x10000`, chúng ta có thể thấy trong memory dump bên dưới đây:
 
 ![kernel first address](http://oi57.tinypic.com/16bkco2.jpg)
 
-The bootloader has now loaded the Linux kernel into memory, filled the header fields, and then jumped to the corresponding memory address. We can now move directly to the kernel setup code.
+Bootloader giờ sẽ load nhân Linux vào bộ nhớ, điền giá trị các trường header, sau đó nhảy đến vị trí bộ nhớ tương ứng. Chúng ta có thể di chuyển trực tiếp đến đoạn code thiết lập nhân.
 
-Start of Kernel Setup
+ Bắt đầu của việc thiết lập nhân (Start of kernel setup)
 --------------------------------------------------------------------------------
 
-Finally, we are in the kernel! Technically, the kernel hasn't run yet; first, we need to set up the kernel, memory manager, process manager, etc. Kernel setup execution starts from [arch/x86/boot/header.S](https://github.com/torvalds/linux/blob/master/arch/x86/boot/header.S) at [_start](https://github.com/torvalds/linux/blob/master/arch/x86/boot/header.S#L293). It is a little strange at first sight, as there are several instructions before it.
+ Cuối cùng thì, chúng ta đã ở trong nhân rồi! Về mặt kĩ thuật, thì nhân vẫn chưa được chạy đâu; Đầu tiên, chúng ta cần thiết lập nhân, bộ quản lý bộ nhớ, bộ quản lý tiến trình, etc. Đoạn code chạy thiết lập nhân bắt đầu từ [arch/x86/boot/header.S](https://github.com/torvalds/linux/blob/master/arch/x86/boot/header.S) ở hàm [_start](https://github.com/torvalds/linux/blob/master/arch/x86/boot/header.S#L293). Ban đầu trong nó hơi lạ, vì có một vài mã lệnh phía trước.
 
-A long time ago, the Linux kernel used to have its own bootloader. Now, however, if you run, for example,
+Một thời gian dài trước kia, nhân Linux sử dụng bootloader riêng cho nó. Bây giờ, nếu bạn ví dụ như sau chẳng hạn,
 
 ```
 qemu-system-x86_64 vmlinuz-3.18-generic
 ```
 
-then you will see:
+Bạn sẽ thấy:
 
 ![Try vmlinuz in qemu](http://oi60.tinypic.com/r02xkz.jpg)
 
-Actually, `header.S` starts from [MZ](https://en.wikipedia.org/wiki/DOS_MZ_executable) (see image above), the error message printing and following the [PE](https://en.wikipedia.org/wiki/Portable_Executable) header:
+ Thực sự thì, `header.S` bắt đầu từ [MZ](https://en.wikipedia.org/wiki/DOS_MZ_executable) (như hình bên trên), một dòng in ra lỗi và header của [PE](https://en.wikipedia.org/wiki/Portable_Executable):
 
 ```assembly
 #ifdef CONFIG_EFI_STUB
@@ -274,9 +274,9 @@ pe_header:
     .word 0
 ```
 
-It needs this to load an operating system with [UEFI](https://en.wikipedia.org/wiki/Unified_Extensible_Firmware_Interface). We won't be looking into its inner workings right now and will cover it in upcoming chapters.
+Đoạn này là cần thiết khi load các hệ điều hành được khởi động theo chuẩn [UEFI](https://en.wikipedia.org/wiki/Unified_Extensible_Firmware_Interface). Chúng ta sẽ không xem xét xử lý bên trong của nó ngay bây giờ, nó sẽ được nói đến ở những chương tiếp sau.
 
-The actual kernel setup entry point is:
+Đoạn thiết lập nhân thực sự bắt đầu từ đoạn sau:
 
 ```assembly
 // header.S line 292
@@ -284,7 +284,7 @@ The actual kernel setup entry point is:
 _start:
 ```
 
-The bootloader (grub2 and others) knows about this point (`0x200` offset from `MZ`) and makes a jump directly to it, despite the fact that `header.S` starts from the `.bstext` section, which prints an error message:
+Các bootloader ( như: grub2 và những cái tương tự) biết rõ điểm bắt đầu này ( vị trí offset `0x200` tính từ `MZ`)  nên nó sẽ thực hiện một thao tác nhảy (jump) đến đó, mặc dù file header `header.S` bắt đầu từ đoạn `.bstext` để in ra một message lỗi rồi:
 
 ```
 //
@@ -295,7 +295,7 @@ The bootloader (grub2 and others) knows about this point (`0x200` offset from `M
 .bsdata : { *(.bsdata) }
 ```
 
-The kernel setup entry point is:
+Điểm đầu vào thiết lập nhân:
 
 ```assembly
     .globl _start
@@ -308,9 +308,9 @@ _start:
     //
 ```
 
-Here we can see a `jmp` instruction opcode (`0xeb`) that jumps to the `start_of_setup-1f` point. In `Nf` notation, `2f` refers to the following local `2:` label; in our case, it is label `1` that is present right after jump, and it contains the rest of the setup [header](https://github.com/torvalds/linux/blob/master/Documentation/x86/boot.txt#L156). Right after the setup header, we see the `.entrytext` section, which starts at the `start_of_setup` label.
+ Ở đây chúng ta thấy mã lệnh của lệnh `jmp` (`0xeb`), thực hiện nhảy đến điểm có nhãn `start_of_setup-1f`. Bằng kí pháp `Nf`, `2f` tham chiếu đến vị trí cục bộ có nhãn `2:`; trong trường hợp này, đó là nhãn `1`, cái ở ngay sau lệnh jump như ta thấy ở trên, đoạn này sẽ chứa phần còn lại của code thiết lập trong [header](https://github.com/torvalds/linux/blob/master/Documentation/x86/boot.txt#L156). Ngay sau đoạn thiết lập này, chúng ta sẽ thấy đoạn `.entrytext`, cái sẽ bắt đầu đoạn có nhãn `start_of_setup`.
 
-This is the first code that actually runs (aside from the previous jump instructions, of course). After the kernel setup received control from the bootloader, the first `jmp` instruction is located at the `0x200` offset from the start of the kernel real mode, i.e., after the first 512 bytes. This we can both read in the Linux kernel boot protocol and see in the grub2 source code:
+ Đây mới là mã lệnh đầu tiên thực sự được chạy ( tất nhiên có thể tính thêm cả lệnh jump trước đó). Sau khi đoạn code thiết lập nhân nhận điều khiển từ bootloader, lệnh `jmp` sẽ nhảy đến vị trí có offset là `0x200` từ vị trí của đoạn code nhân trong chế độ real mode, ví dụ sau 52 byte đầu tiên. Ở đây chúng ta có thể đọc giao thức boot nhân Linux và kiểm tra trên source code của grub2:
 
 ```C
 segment = grub_linux_real_target >> 4;
@@ -318,28 +318,28 @@ state.gs = state.fs = state.es = state.ds = state.ss = segment;
 state.cs = segment + 0x20;
 ```
 
-This means that segment registers will have the following values after kernel setup starts:
+ Đoạn này sẽ nói lên rằng các thanh ghi segment sẽ nhận các giá trị như dưới đây sau khi thiết lập nhân bắt đầu:
 
 ```
 gs = fs = es = ds = ss = 0x1000
 cs = 0x1020
 ```
 
-In my case, the kernel is loaded at `0x10000`.
+ Trong trường hợp của tôi, nhân được load ở địa chỉ `0x10000`.
 
-After the jump to `start_of_setup`, the kernel needs to do the following:
+ Sau khi nhảy đến nhãn `start_of_setup`, đầu tiên nhân sẽ làm những việc sau:
 
-* Make sure that all segment register values are equal
-* Set up a correct stack, if needed
-* Set up [bss](https://en.wikipedia.org/wiki/.bss)
-* Jump to the C code in [main.c](https://github.com/torvalds/linux/blob/master/arch/x86/boot/main.c)
+* Kiểm tra để chắc chắn rằng các thanh ghi segment có cùng giá trị 
+* Thiết lập lại stack nếu cần 
+* Thiết lập [bss](https://en.wikipedia.org/wiki/.bss)
+* Nhảy đến đoạn mã được sinh ra bởi code C trong [main.c](https://github.com/torvalds/linux/blob/master/arch/x86/boot/main.c)
 
-Let's look at the implementation.
+ Nào chúng ta hãy xem nó được viết như thế nào.
 
 Segment registers align
 --------------------------------------------------------------------------------
 
-First of all, the kernel ensures that `ds` and `es` segment registers point to the same address. Next, it clears the direction flag using the `cld` instruction:
+ Đầu tiên nhất, nhân sẽ đảm bảo giá trị thanh ghi segment `ds` và `es` cùng trỏ đến một địa chỉ. Tiếp theo, nó clear giá trị các cờ hướng sử dụng lệnh  `cld`:
 
 ```assembly
     movw    %ds, %ax
@@ -347,7 +347,7 @@ First of all, the kernel ensures that `ds` and `es` segment registers point to t
     cld
 ```
 
-As I wrote earlier, grub2 loads kernel setup code at address `0x10000` and `cs` at `0x1020` because execution doesn't start from the start of file, but from
+ Như đã viết trước đó, grub2 load đoạn code thiết lập nhân vào địa chỉ `0x10000` và `cs` sẽ được thiết lập trỏ đến địa chỉ `0x1020` bởi vì quá trình chạy không thể bắt đầu từ vạch bắt đầu được, nhưng từ đoạn
 
 ```assembly
 _start:
@@ -355,7 +355,7 @@ _start:
     .byte start_of_setup-1f
 ```
 
-`jump`, which is at a 512 byte offset from [4d 5a](https://github.com/torvalds/linux/blob/master/arch/x86/boot/header.S#L47). It also needs to align `cs` from `0x10200` to `0x10000`, as well as all other segment registers. After that, we set up the stack:
+lệnh `jump`, sẽ nhảy đến vị trí cách 512 byte từ đoạn chứ giá trị magic [4d 5a](https://github.com/torvalds/linux/blob/master/arch/x86/boot/header.S#L47). Bạn cần điều chỉnh thanh ghi `cs` từ giá trị `0x10200` sang giá trị `0x10000`, các thanh ghi khác cũng thế. Sau đó, chúng ta thiết lập lại stack:
 
 ```assembly
     pushw   %ds
@@ -363,12 +363,12 @@ _start:
     lretw
 ```
 
-which pushes the value of `ds` to the stack with the address of the [6](https://github.com/torvalds/linux/blob/master/arch/x86/boot/header.S#L494) label and executes the `lretw` instruction. When the `lretw` instruction is called, it loads the address of label `6` into the [instruction pointer](https://en.wikipedia.org/wiki/Program_counter) register and loads `cs` with the value of `ds`. Afterwards, `ds` and `cs` will have the same values.
+ sẽ thực hiện đẩy giá trị `ds` chứa địa chỉ của nhãn là [6](https://github.com/torvalds/linux/blob/master/arch/x86/boot/header.S#L494), rồi chạy lệnh `lretw`. Khi lệnh `lretw` này được gọi, nó sẽ load địa chỉ của nhãn `6` vào thanh ghi [instruction pointer](https://en.wikipedia.org/wiki/Program_counter) và load giá trị cho thanh ghi  `cs` bằng chính giá trị của thanh ghi `ds` trước đó. Hay nói cách khác, sau bước này, thanh ghi `ds` và `cs` sẽ có cùng giá trị.
 
-Stack Setup
+Thiết lập stack
 --------------------------------------------------------------------------------
 
-Almost all of the setup code is in preparation for the C language environment in real mode. The next [step](https://github.com/torvalds/linux/blob/master/arch/x86/boot/header.S#L467) is checking the `ss` register value and making a correct stack if `ss` is wrong:
+ Hầu hết code trong phần thiết lập chạy để chuẩn bị cho môi trường chạy mã C (mã máy sinh ra từ các chương trình C) trong real mode. [Bước tiếp theo đó](https://github.com/torvalds/linux/blob/master/arch/x86/boot/header.S#L467)  là thực hiện kiểm tra giá trị thanh ghi `ss` và sửa lại cho đúng nếu nó bị sai:
 
 ```assembly
     movw    %ss, %dx
@@ -377,15 +377,15 @@ Almost all of the setup code is in preparation for the C language environment in
     je      2f
 ```
 
-This can lead to 3 different scenarios:
+Điều này dẫn đến 3 ngữ cảnh khác nhau:
 
-* `ss` has valid value 0x10000 (as do all other segment registers beside `cs`)
-* `ss` is invalid and `CAN_USE_HEAP` flag is set     (see below)
-* `ss` is invalid and `CAN_USE_HEAP` flag is not set (see below)
+* `ss` chứa giá trị hợp lệ 0x10000 ( giống như tất cả các thanh ghi khác tương tự `cs`)
+* `ss` chứa giá trị không hợp lệ và cờ `CAN_USE_HEAP` được bật     (xem thêm bên dưới)
+* `ss` chứa giá trị không hợp lệ và cờ `CAN_USE_HEAP` không được bật (xem thêm bên dưới)
 
-Let's look at all three of these scenarios in turn:
+ Chúng ta sẽ cùng nhìn 3 ngữ cảnh này theo thứ tự nào:
 
-* `ss` has a correct address (0x10000). In this case, we go to label [2](https://github.com/torvalds/linux/blob/master/arch/x86/boot/header.S#L481):
+* `ss` chứa giá trị hợp lệ (0x10000). Trong trường hợp này , chúng ta sẽ đến nhãn là [2](https://github.com/torvalds/linux/blob/master/arch/x86/boot/header.S#L481):
 
 ```assembly
 2:  andw    $~3, %dx
@@ -396,11 +396,11 @@ Let's look at all three of these scenarios in turn:
     sti
 ```
 
-Here we can see the alignment of `dx` (contains `sp` given by bootloader) to 4 bytes and a check for whether or not it is zero. If it is zero, we put `0xfffc` (4 byte aligned address before the maximum segment size of 64 KB) in `dx`. If it is not zero, we continue to use `sp`, given by the bootloader (0xf7f4 in my case). After this, we put the `ax` value into `ss`, which stores the correct segment address of `0x10000` and sets up a correct `sp`. We now have a correct stack:
+ Ở đây ta thấy, 4 bytes kiểm tra được sử dụng để kiểm tra xem giá trị `dx` ( chứa giá trị `sp` được cung cấp bởi bootloader) có bằng 0 hay không. Nếu nó bằng zero, chúng ta sẽ gán giá trị `0xfffc` ( dịch chuyển 4 byte trước địa chỉ của số byte lớn nhất 64 KB) trong `dx`. Nếu nó khác zero, chúng ta tiếp tục sử dụng giá trị `sp`, được gán bởi bootloader ( trong trường hợp của tôi là 0xf7f4). Sau bước này, chúng ta sẽ đặt giá trị `ax` thanh ghi `ss`, chính là thanh ghi lưu địa chỉ `0x10000` và thiết lập đúng cho `sp`. Giờ chúng ta có một stack hợp lệ rồi:
 
 ![stack](http://oi58.tinypic.com/16iwcis.jpg)
 
-* In the second scenario, (`ss` != `ds`). First, we put the value of [_end](https://github.com/torvalds/linux/blob/master/arch/x86/boot/setup.ld#L52) (the address of the end of the setup code) into `dx` and check the `loadflags` header field using the `testb` instruction to see whether we can use the heap. [loadflags](https://github.com/torvalds/linux/blob/master/arch/x86/boot/header.S#L321) is a bitmask header which is defined as:
+* Trong ngữ cảnh thứ 2, ( giá trị `ss` != `ds`). Đầu tiên, chúng ta đặt giá trị của [_end](https://github.com/torvalds/linux/blob/master/arch/x86/boot/setup.ld#L52) (địa chỉ cuối cùng của đoạn code thiết lập) vào thanh ghi `dx`  rồi kiểm tra giá trị cờ `loadflags` sử dụng lệnh `testb` instruction, để xem có thể sử dụng bộ nhớ heap không. Các giá trị của [loadflags](https://github.com/torvalds/linux/blob/master/arch/x86/boot/header.S#L321) là các cờ bitmask được định nghĩa ở đây:
 
 ```C
 #define LOADED_HIGH     (1<<0)
@@ -409,7 +409,7 @@ Here we can see the alignment of `dx` (contains `sp` given by bootloader) to 4 b
 #define CAN_USE_HEAP    (1<<7)
 ```
 
-and, as we can read in the boot protocol,
+và, bạn cũng thể đọc nó trong giao thức boot với đoạn như sau,
 
 ```
 Field name: loadflags
@@ -422,29 +422,29 @@ Field name: loadflags
     functionality will be disabled.
 ```
 
-If the `CAN_USE_HEAP` bit is set, we put `heap_end_ptr` into `dx` (which points to `_end`) and add `STACK_SIZE` (minimum stack size, 512 bytes) to it. After this, if `dx` is not carried (it will not be carried, dx = _end + 512), jump to label `2` (as in the previous case) and make a correct stack.
+Nếu giá trị cờ `CAN_USE_HEAP` được bật, chúng ta sẽ phải đặt giá trị `heap_end_ptr` vào thanh ghi `dx` ( cái đang trỏ đến `_end`) và cộng giá trị kích thước `STACK_SIZE` ( kích thước nhỏ nhất là 512 bytes) vào đó. Sau bước này,  nếu giá trị `dx` được nhớ lại ( nó sẽ không được nhớ lại, dx = _end + 512), chúng ta sẽ nhảy đến nhãn `2` (như trong trường hợp đầu tiên) và đảm bảo stack hợp lệ.
 
 ![stack](http://oi62.tinypic.com/dr7b5w.jpg)
 
-* When `CAN_USE_HEAP` is not set, we just use a minimal stack from `_end` to `_end + STACK_SIZE`:
+* Khi mà cờ `CAN_USE_HEAP` không được set, chúng ta đơn giản sử dụng một stack với kích thước nhỏ nhất từ `_end` đến `_end + STACK_SIZE`:
 
 ![minimal stack](http://oi60.tinypic.com/28w051y.jpg)
 
-BSS Setup
+Thiết lập BSS
 --------------------------------------------------------------------------------
 
-The last two steps that need to happen before we can jump to the main C code are setting up the [BSS](https://en.wikipedia.org/wiki/.bss) area and checking the "magic" signature. First, signature checking:
+ Hai bước cuối cùng cần được thực hiện trước khi nhảy đến hàm main của code C là thiết lập vùng [BSS](https://en.wikipedia.org/wiki/.bss) và kiểm tra chữ kí "magic" ("magic" signature). Đầu tiên, kiểm tra chữ kí:
 
 ```assembly
     cmpl    $0x5a5aaa55, setup_sig
     jne     setup_bad
 ```
 
-This simply compares the [setup_sig](https://github.com/torvalds/linux/blob/master/arch/x86/boot/setup.ld#L39) with the magic number `0x5a5aaa55`. If they are not equal, a fatal error is reported.
+Đoạn này đơn giản là so sánh giá trị [setup_sig](https://github.com/torvalds/linux/blob/master/arch/x86/boot/setup.ld#L39) với một dãy số magic `0x5a5aaa55`. Nếu chúng không bằng nhau, lỗi không thể tiếp tục (fatal error) sẽ được thông báo.
 
-If the magic number matches, knowing we have a set of correct segment registers and a stack, we only need to set up the BSS section before jumping into the C code.
+ Nếu đoạn chúng bằng nhau, nó sẽ cho chúng ta biết rằng chúng ta đã thiết lập đúng các thanh ghi segement (segment registers) và stack, bạn cần thiết lập vùng BSS trước khi nhảy đến code C.
 
-The BSS section is used to store statically allocated, uninitialized data. Linux carefully ensures this area of memory is first zeroed using the following code:
+ Vùng BSS được sử dụng cho việc cấp phát tĩnh, chứa các giá trị cho biến chưa được khởi tạo. Linux đảm bảo một cách cẩn thận rằng vùng này đầu tiên sẽ được đưa hết về zero thông qua đoạn code sau:
 
 ```assembly
     movw    $__bss_start, %di
@@ -455,25 +455,25 @@ The BSS section is used to store statically allocated, uninitialized data. Linux
     rep; stosl
 ```
 
-First, the [__bss_start](https://github.com/torvalds/linux/blob/master/arch/x86/boot/setup.ld#L47) address is moved into `di`. Next, the `_end + 3` address (+3 - aligns to 4 bytes) is moved into `cx`. The `eax` register is cleared (using a `xor` instruction), and the bss section size (`cx`-`di`) is calculated and put into `cx`. Then, `cx` is divided by four (the size of a 'word'), and the `stosl` instruction is used repeatedly, storing the value of `eax` (zero) into the address pointed to by `di`, automatically increasing `di` by four, repeating until `cx` reaches zero). The net effect of this code is that zeros are written through all words in memory from `__bss_start` to `_end`:
+ Đầu tiên, địa chỉ của [__bss_start](https://github.com/torvalds/linux/blob/master/arch/x86/boot/setup.ld#L47) được đưa vào thanh ghi `di`. Sau đó, giá trị ở địa chỉ `_end + 3` (+3 - tiến 4 bytes) được lưu vào `cx`. Thanh ghi `eax` xóa (gán về 0) ( sử dụng lệnh `xor`), kích thước của bss (`cx`-`di`) được tính rồi đưa vào thanh ghi `cx`. Rồi sau đó, giá trị ở thanh ghi `cx` được chia cho 4 ( bằng kích thước 1 word 'word'), lệnh `stosl` được thực hiện lặp lại, lưu giá trị ở thanh ghi `eax` ( hiện tại là zero) vào địa chỉ chứa ở thanh ghi `di`, ngay sau đó giá trị ở thanh ghi `di` sẽ được tăng lên 4, lặp lại quá trình này đến khi `cx` bằng 0). Mục đích chính của quá trình này là ghi zero vào tất cả các vị trí nhớ từ `__bss_start` cho đến `_end`:
 
 ![bss](http://oi59.tinypic.com/29m2eyr.jpg)
 
-Jump to main
+Nhảy đến main
 --------------------------------------------------------------------------------
 
-That's all - we have the stack and BSS, so we can jump to the `main()` C function:
+ Rồi, tất cả những gì ta có là - stack và BSS, giờ có thể nhảy đến hàm `main()` được sinh ra từ code C được rồi:
 
 ```assembly
     calll main
 ```
 
-The `main()` function is located in [arch/x86/boot/main.c](https://github.com/torvalds/linux/blob/master/arch/x86/boot/main.c). You can read about what this does in the next part.
+ Cái hàm `main()` có source code ở [arch/x86/boot/main.c](https://github.com/torvalds/linux/blob/master/arch/x86/boot/main.c). Bạn có thể biết chúng thực hiện gì ở đó trong chương sau.
 
-Conclusion
+Kết luận
 --------------------------------------------------------------------------------
 
-This is the end of the first part about Linux kernel insides. If you have questions or suggestions, ping me on twitter [0xAX](https://twitter.com/0xAX), drop me an [email](anotherworldofworld@gmail.com), or just create an [issue](https://github.com/0xAX/linux-internals/issues/new). In the next part, we will see the first C code that executes in the Linux kernel setup, the implementation of memory routines such as `memset`, `memcpy`, `earlyprintk`, early console implementation and initialization, and much more.
+ Đây là đoạn cuối trong chương đầu tiên về Linux kernel insides. Nếu bạn có bất cứ câu hỏi hoặc gợi ý nào, hãy ping cho tôi trên [0xAX](https://twitter.com/0xAX), gửi [email](anotherworldofworld@gmail.com), hoặc đơn giản là tạo một [issue](https://github.com/0xAX/linux-internals/issues/new). Trong chương tới, chúng ta sẽ xem đoạn code C đầu tiên được chạy khi thiết lập nhân Linux, các thực thi (implementation) của các hàm cơ bản như `memset`, `memcpy`, `earlyprintk`, thực thi của console sớm (early console implementation) và cả khởi tạo nữa, cũng như những thứ khác.
 
 **Please note that English is not my first language and I am really sorry for any inconvenience. If you find any mistakes please send me PR to [linux-insides](https://github.com/0xAX/linux-internals).**
 
