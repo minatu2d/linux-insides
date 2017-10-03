@@ -1,26 +1,31 @@
-Kernel booting process. Part 4.
+Quá trình boot nhân. phần 4 - Kernel booting process. Part 4.
 ================================================================================
 
-Transition to 64-bit mode
+ Chuyển sang chế độ 64-bit mode
 --------------------------------------------------------------------------------
 
-This is the fourth part of the `Kernel booting process` where we will see first steps in [protected mode](http://en.wikipedia.org/wiki/Protected_mode), like checking that cpu supports [long mode](http://en.wikipedia.org/wiki/Long_mode) and [SSE](http://en.wikipedia.org/wiki/Streaming_SIMD_Extensions), [paging](http://en.wikipedia.org/wiki/Paging), initializes the page tables and at the end we will discuss the transition to [long mode](https://en.wikipedia.org/wiki/Long_mode).
+ Đây là phần thứ 4 trong loại bài về `Kernel booting process` (quá trình boot nhân), nơi chúng ta đã thấy những bước đầu tiên khi chuyển sang [protected mode](http://en.wikipedia.org/wiki/Protected_mode), như kiểm tra xem cpu có hỗ trợ [long mode](http://en.wikipedia.org/wiki/Long_mode) hay không và [SSE](http://en.wikipedia.org/wiki/Streaming_SIMD_Extensions), rồi thì [paging](http://en.wikipedia.org/wiki/Paging), khởi tạo bảng page (page tables), rồi ở cuối ta đã nói đến việc chuyển sang [long mode](https://en.wikipedia.org/wiki/Long_mode).
 
 **NOTE: there will be much assembly code in this part, so if you are not familiar with that, you might want to consult a book about it**
 
-In the previous [part](https://github.com/0xAX/linux-insides/blob/master/Booting/linux-bootstrap-3.md) we stopped at the jump to the 32-bit entry point in [arch/x86/boot/pmjump.S](https://github.com/torvalds/linux/blob/master/arch/x86/boot/pmjump.S):
+Ở [part](https://github.com/0xAX/linux-insides/blob/master/Booting/linux-bootstrap-3.md) trước, chúng ta đang dừng lại ở đoạn nhảy đến điểm đầu vào 32-bit - 32-bit entry point trong file [arch/x86/boot/pmjump.S](https://github.com/torvalds/linux/blob/master/arch/x86/boot/pmjump.S):
 
 ```assembly
 jmpl	*%eax
 ```
 
-You will recall that `eax` register contains the address of the 32-bit entry point. We can read about this in the [linux kernel x86 boot protocol](https://www.kernel.org/doc/Documentation/x86/boot.txt):
+Chúng ta lại thấy thanh ghi `eax` chứa địa chỉ của điểm đầu vào 32-bit. Chúng ta có thể đọc thêm về thanh ghi này tại [linux kernel x86 boot protocol](https://www.kernel.org/doc/Documentation/x86/boot.txt):
 
 ```
 When using bzImage, the protected-mode kernel was relocated to 0x100000
 ```
+Ý là:
+```
+Khi sử sụng bzImage, vị trị kernel trong protected mode sẽ nằm ở địa chỉ 0x100000
+```
 
-Let's make sure that it is true by looking at the register values at the 32-bit entry point:
+
+Nào, cùng nhau kiểm tra xem đó nó có đúng không bằng cách xem 32-bit entry point được gán như thế nào:
 
 ```
 eax            0x100000	1048576
@@ -41,12 +46,12 @@ fs             0x18	24
 gs             0x18	24
 ```
 
-We can see here that `cs` register contains - `0x10` (as you will remember from the previous part, this is the second index in the Global Descriptor Table), `eip` register is `0x100000` and base address of all segments including the code segment are zero. So we can get the physical address, it will be `0:0x100000` or just `0x100000`, as specified by the boot protocol. Now let's start with the 32-bit entry point.
+Bạn có thể thấy ở đây thanh ghi `cs` chứa giá trị `0x10` (bạn có thể nhớ từ phần trước, đây là index thứ 2 trong bảng GDT -  Global Descriptor Table), thanh ghi `eip` chứa `0x100000` và địa chỉ cơ sở (base address) của tất cả các segment gồm cả code segment đều là zero. Vì thế ta có thể tính ra địa chỉ vật lý của nó, nó sẽ là `0:0x100000` hay đơn giản là `0x100000`, như được chỉ ra trong giảo thức boot nhân. Bây giờ, chúng ta sẽ đi từ điểm đầu vào 32-bit - 32-bit entry point.
 
-32-bit entry point
+ Điểm đầu vào 32-bit - 32-bit entry point
 --------------------------------------------------------------------------------
 
-We can find the definition of the 32-bit entry point in the [arch/x86/boot/compressed/head_64.S](https://github.com/torvalds/linux/blob/master/arch/x86/boot/compressed/head_64.S) assembly source code file:
+Bạn có thể tìm thấy định nghĩa của điểm đầu vào này tại file asm [arch/x86/boot/compressed/head_64.S](https://github.com/torvalds/linux/blob/master/arch/x86/boot/compressed/head_64.S):
 
 ```assembly
 	__HEAD
@@ -58,14 +63,14 @@ ENTRY(startup_32)
 ENDPROC(startup_32)
 ```
 
-First of all why `compressed` directory? Actually `bzimage` is a gzipped `vmlinux + header + kernel setup code`. We saw the kernel setup code in all of the previous parts. So, the main goal of the `head_64.S` is to prepare for entering long mode, enter into it and then decompress the kernel. We will see all of the steps up to kernel decompression in this part.
+Hãy để ý một chút, file chứa định nghĩa nằm trong thư mục có tên  `compressed`, tại sao lại như thế? Đó là vì, `bzimage` là file nén chứa `vmlinux(binary của nhân) + header + kernel setup code(code thiết lập nhân)`. Chúng ta đã xem xét phần code thiết lập nhân - kernel setup code trong các phần trước rồi. Vì thế, mục tiêu của `head_64.S` thực hiện các chuẩn bị để chuyển sang long mode, chuyển vào đó xong sẽ giải nén nhân. Chúng ta sẽ thấy tất cả các bước cho đến phần giải nén nhân - kernel decompression trong phần này.
 
-There were two files in the `arch/x86/boot/compressed` directory:
+Có 2 file trong thư mục `arch/x86/boot/compressed`:
 
 * [head_32.S](https://github.com/torvalds/linux/blob/master/arch/x86/boot/compressed/head_32.S)
 * [head_64.S](https://github.com/torvalds/linux/blob/master/arch/x86/boot/compressed/head_64.S)
 
-but we will see only `head_64.S` because, as you may remember, this book is only `x86_64` related; `head_32.S` is not used in our case. Let's look at [arch/x86/boot/compressed/Makefile](https://github.com/torvalds/linux/blob/master/arch/x86/boot/compressed/Makefile). There we can see the following target:
+nhưng chúng ta chỉ xem file `head_64.S` thôi vì, có thể bạn còn nhớ, cuốn sách này chỉ nói về `x86_64` thôi; `head_32.S` không được nói đến trong trường hợp của chúng ta. Hãy xem file [arch/x86/boot/compressed/Makefile](https://github.com/torvalds/linux/blob/master/arch/x86/boot/compressed/Makefile). Ở đó, bạn có thể thấy một rule để build như sau:
 
 ```Makefile
 vmlinux-objs-y := $(obj)/vmlinux.lds $(obj)/head_$(BITS).o $(obj)/misc.o \
@@ -73,7 +78,7 @@ vmlinux-objs-y := $(obj)/vmlinux.lds $(obj)/head_$(BITS).o $(obj)/misc.o \
 	$(obj)/piggy.o $(obj)/cpuflags.o
 ```
 
-Note `$(obj)/head_$(BITS).o`. This means that we will select which file to link based on what `$(BITS)` is set to, either head_32.o or head_64.o.   `$(BITS)` is defined elsewhere in [arch/x86/Makefile](https://github.com/torvalds/linux/blob/master/arch/x86/Makefile) based on the .config file:
+ Ở đây, chú ý rằng có file `$(obj)/head_$(BITS).o`. Tức là, cho phép chọn file nào được link thông qua việc gán giá trị biến cho biến `$(BITS)`, hoặc là head_32.o hoặc là head_64.o.   `$(BITS)` được định nghĩa ở [arch/x86/Makefile](https://github.com/torvalds/linux/blob/master/arch/x86/Makefile) dựa trên nội dung file .config:
 
 ```Makefile
 ifeq ($(CONFIG_X86_32),y)
@@ -87,12 +92,12 @@ else
 endif
 ```
 
-Now we know where to start, so let's do it.
+ Giờ, chúng ta đã biết chút ý về điểm bắt đầu, nào hãy xem nó.
 
-Reload the segments if needed
+ Reload các segment nếu cần - Reload the segments if needed
 --------------------------------------------------------------------------------
 
-As indicated above, we start in the [arch/x86/boot/compressed/head_64.S](https://github.com/torvalds/linux/blob/master/arch/x86/boot/compressed/head_64.S) assembly source code file. First we see the definition of the special section attribute before the `startup_32` definition:
+Như đã nhắc từ trên, chúng ta sẽ bắt đầu từ file asm [arch/x86/boot/compressed/head_64.S](https://github.com/torvalds/linux/blob/master/arch/x86/boot/compressed/head_64.S). Đầu tiên, chúng ta sẽ xem một thuộc tính segment đặc biệt - special section attribute trước định nghĩa `startup_32` trong đoạn dưới đây:
 
 ```assembly
     __HEAD
@@ -100,13 +105,13 @@ As indicated above, we start in the [arch/x86/boot/compressed/head_64.S](https:/
 ENTRY(startup_32)
 ```
 
-The `__HEAD` is macro which is defined in [include/linux/init.h](https://github.com/torvalds/linux/blob/master/include/linux/init.h) header file and expands to the definition of the following section:
+Cái `__HEAD` này là một macro được định nghĩa trong file header [include/linux/init.h](https://github.com/torvalds/linux/blob/master/include/linux/init.h) và được mở rộng thành định nghĩa như sau:
 
 ```C
 #define __HEAD		.section	".head.text","ax"
 ```
 
-with `.head.text` name and `ax` flags. In our case, these flags show us that this section is [executable](https://en.wikipedia.org/wiki/Executable) or in other words contains code. We can find definition of this section in the [arch/x86/boot/compressed/vmlinux.lds.S](https://github.com/torvalds/linux/blob/master/arch/x86/boot/compressed/vmlinux.lds.S) linker script:
+với tên `.head.text` và cờ `ax`. Trong trường hợp của chúng ta, cờ này sẽ chỉ cho chúng ta biết cái section này là [executable](https://en.wikipedia.org/wiki/Executable) tức là chạy được hay nói cách khác là chứa code. Chúng ta có thể tìm thấy định nghĩa section này trong script dành cho linker [arch/x86/boot/compressed/vmlinux.lds.S](https://github.com/torvalds/linux/blob/master/arch/x86/boot/compressed/vmlinux.lds.S):
 
 ```
 SECTIONS
@@ -119,17 +124,21 @@ SECTIONS
 	}
 ```
 
-If you are not familiar with syntax of `GNU LD` linker scripting language, you can find more information in the [documentation](https://sourceware.org/binutils/docs/ld/Scripts.html#Scripts). In short, the `.` symbol is a special variable of linker - location counter. The value assigned to it is an offset relative to the offset of the segment. In our case we assign zero to location counter. This means that that our code is linked to run from the `0` offset in memory. Moreover, we can find this information in comments:
+Nếu bạn không quen với ngôn ngữ - `GNU LD` linker scripting, bạn có thể xem thêm thông tin trong [documentation](https://sourceware.org/binutils/docs/ld/Scripts.html#Scripts). Nói ngắn gọn, kí hiệu `.` (dấu chấm) là một biến đặc biệ của linker - đếm vị trí (location counter). Giá trị được gán đến nó là chỉ vị trí tương đối đến offset trong segement đó. Trong trường hợp của chúng ta, ban đầu gán 0 cho biến đếm vị trí. Điều này có nghĩa rằng, code của chúng ta vẫn được link để chạy từ vị trí có offset `0` trên bộ nhớ. Thêm nữa, bạn có thể thấy thêm thông tin trong đoạn comment sau:
 
 ```
 Be careful parts of head_64.S assume startup_32 is at address 0.
 ```
+Ý là:
+```
+Chú ý là, các phần code của head_64.s giả định rằng startup_32 nằm ở địa chỉ 0
+```
 
-Ok, now we know where we are, and now is the best time to look inside the `startup_32` function.
+Ok, giờ chúng ta biết là chúng ta đang ở đâu, giờ là luc thích hợp để xem bên trong hàm `startup_32`.
 
-In the beginning of the `startup_32` function, we can see the `cld` instruction which clears the `DF` bit in the [flags](https://en.wikipedia.org/wiki/FLAGS_register) register. When direction flag is clear, all string operations like [stos](http://x86.renejeschke.de/html/file_module_x86_id_306.html), [scas](http://x86.renejeschke.de/html/file_module_x86_id_287.html) and others will increment the index registers `esi` or `edi`. We need to clear direction flag because later we will use strings operations for clearing space for page tables, etc.
+Trong đoạn bắt đầu của hàm `startup_32`, chúng ta thấy lệnh `cld` được gọi để thực hiện xóa bit `DF` trong thanh ghi cờ - [flags](https://en.wikipedia.org/wiki/FLAGS_register). Khi các cờ này được xóa, thì tất cả các thao tác với chuỗi như [stos](http://x86.renejeschke.de/html/file_module_x86_id_306.html), [scas](http://x86.renejeschke.de/html/file_module_x86_id_287.html) và các thao tác khác sẽ tăng index bằng thanh ghi `esi` hoặc `edi`. Chúng ta cần xóa các cờ hướng này vì sau đó ta sẽ dùng các thao tác chuỗi để xóa vùng trống dành cho bảng page - page tables, etc.
 
-After we have cleared the `DF` bit, next step is the check of the `KEEP_SEGMENTS` flag from `loadflags` kernel setup header field. If you remember we already saw `loadflags` in the very first [part](https://0xax.gitbooks.io/linux-insides/content/Booting/linux-bootstrap-1.html) of this book. There we checked `CAN_USE_HEAP` flag to get ability to use heap. Now we need to check the `KEEP_SEGMENTS` flag. This flags is described in the linux [boot protocol](https://www.kernel.org/doc/Documentation/x86/boot.txt) documentation:
+Sau khi xóa bit `DF`, tiếp đến là kiểm tra cờ `KEEP_SEGMENTS` từ trường `loadflags` trong header setup nhân. Nếu bạn nhớ chúng ta đã từng thấy `loadflags` trong các [part](https://0xax.gitbooks.io/linux-insides/content/Booting/linux-bootstrap-1.html) đầu của cuốn sách này. Ở đó, chúng ta đã kiểm tra cờ `CAN_USE_HEAP` xem có thể sử dụng heap hay không. Giờ, ở đây chúng ta kiểm tra cờ `KEEP_SEGMENTS`. Cờ này được miêu tả trong tài liệu [boot protocol](https://www.kernel.org/doc/Documentation/x86/boot.txt):
 
 ```
 Bit 6 (write): KEEP_SEGMENTS
@@ -139,8 +148,17 @@ Bit 6 (write): KEEP_SEGMENTS
     Assume that %cs %ds %ss %es are all set to flat segments with
 	a base of 0 (or the equivalent for their environment).
 ```
+Ý là:
+```
+Bit 6 (write): KEEP_SEGMENTS
+  Protocol: 2.07+
+  - Nếu là 0, load lại các thanh ghi segment trong điểm đầu vào 32bit.
+  - Nếu là 1, đừng load lại segment registers trong điều đầu vào 32bit.
+    Giả định rằng %cs %ds %ss %es được dùng để set flat segments (segement không bị phân mảnh) với base bằng 0 
+    (hoặc tương đương như thế trong môi trường của chúng).
+```
 
-So, if the `KEEP_SEGMENTS` bit is not set in the `loadflags`, we need to reset `ds`, `ss` and `es` segment registers to a flat segment with base `0`. That we do:
+Vì thế, nếu bit `KEEP_SEGMENTS` không được bật trong cờ `loadflags`, chúng ta cần reset các thanh ghi segment `ds`, `ss` và `es` thành các segment không bị phân mảnh với `0`. Cái chúng ta sẽ làm là:
 
 ```C
 	testb $(1 << 6), BP_loadflags(%esi)
@@ -153,9 +171,9 @@ So, if the `KEEP_SEGMENTS` bit is not set in the `loadflags`, we need to reset `
 	movl	%eax, %ss
 ```
 
-Remember that the `__BOOT_DS` is `0x18` (index of data segment in the [Global Descriptor Table](https://en.wikipedia.org/wiki/Global_Descriptor_Table)). If `KEEP_SEGMENTS` is set, we jump to the nearest `1f` label or update segment registers with `__BOOT_DS` if it is not set. It is pretty easy, but here is one interesting moment. If you've read the previous [part](https://github.com/0xAX/linux-insides/blob/master/Booting/linux-bootstrap-3.md), you may remember that we already updated these segment registers right after we switched to [protected mode](https://en.wikipedia.org/wiki/Protected_mode) in [arch/x86/boot/pmjump.S](https://github.com/torvalds/linux/blob/master/arch/x86/boot/pmjump.S). So why do we need to care about values of segment registers again? The answer is easy. The Linux kernel also has a 32-bit boot protocol and if a bootloader uses it to load the Linux kernel all code before the `startup_32` will be missed. In this case, the `startup_32` will be first entry point of the Linux kernel right after bootloader and there are no guarantees that segment registers will be in known state.
+Hãy nhớ rằng `__BOOT_DS` bằng `0x18` ( index hay vị trí của segment data trong [Global Descriptor Table](https://en.wikipedia.org/wiki/Global_Descriptor_Table)). Nếu giá trị `KEEP_SEGMENTS` được set, chúng ta sẽ nhảy đến vị trí có nhãn `1f` hoặc update các thanh ghi segment theo `__BOOT_DS` nếu nó không được set. Nó khá dễ hiểu nhưng, có một điểm thú vị ở đây. Nếu bạn đọc phần trước [part](https://github.com/0xAX/linux-insides/blob/master/Booting/linux-bootstrap-3.md), bạn có thể nhớ rằng, chúng ta đã update các giá trị thanh ghi segment một cách đúng đắn lúc chúng ta chuyển sang chế độ [protected mode](https://en.wikipedia.org/wiki/Protected_mode) trong file [arch/x86/boot/pmjump.S](https://github.com/torvalds/linux/blob/master/arch/x86/boot/pmjump.S). Vậy tại sao chúng ta cần quan tâm đến giá trị của mấy thanh ghi segment này làm gì nữa? Câu trở thật đơn giản. Nhân Linux có một giao thức boot ở 32-bit và nếu bootloader sử dụng chính giao thức đó để load hết code của nhân Linux trước hàm `startup_32` thì không ổn. Trong trường hợp này, hàm `startup_32` phải là điểm vào đầu tiên nhất của nhân Linux sau bootloader và không có gì để đảm bảo giá trị các thanh ghi segment còn được giữ nguyên trạng thái cũ.
 
-After we have checked the `KEEP_SEGMENTS` flag and put the correct value to the segment registers, the next step is to calculate difference between where we loaded and compiled to run. Remember that `setup.ld.S` contains following definition: `. = 0` at the start of the `.head.text` section. This means that the code in this section is compiled to run from `0` address. We can see this in `objdump` output:
+Sau khi chúng ta kiểm tra giá trị cờ `KEEP_SEGMENTS` và đặt giá trị thích hợp vào thanh ghi segment, bước tiếp theo là tính toán sự sai khác giữa vị trí chúng ta đã load vào và vị trí được biên dịch để chạy. Nhớ rằng `setup.ld.S` có chứa định nghĩa sau: `. = 0` ở chỗ bắt đầu của section `.head.text`. Có nghĩa là code trong section này sẽ được biên dịch để chạy từ địa chỉ `0`. Bạn có thể thấy trong đầu ra của câu lệnh quen thuộc trong Linux `objdump`:
 
 ```
 arch/x86/boot/compressed/vmlinux:     file format elf64-x86-64
@@ -168,14 +186,14 @@ Disassembly of section .head.text:
    1:   f6 86 11 02 00 00 40    testb  $0x40,0x211(%rsi)
 ```
 
-The `objdump` util tells us that the address of the `startup_32` is `0`. But actually it is not so. Our current goal is to know where actually we are. It is pretty simple to do in [long mode](https://en.wikipedia.org/wiki/Long_mode), because it support `rip` relative addressing, but currently we are in [protected mode](https://en.wikipedia.org/wiki/Protected_mode). We will use common pattern to know the address of the `startup_32`. We need to define a label and make a call to this label and pop the top of the stack to a register:
+Câu lệnh `objdump` cho chúng ta biết địa chỉ của hàm `startup_32` bằng `0`. Nhưng thực sự lại không phải vậy. Mục tiêu hiện tại là biết chỗ chúng ta thực sự nằm là ở chỗ nào. Để biết cái này thì khá đơn giản khi ở chế độ [long mode](https://en.wikipedia.org/wiki/Long_mode), bởi vì nó hỗ trợ đánh địa chỉ tương đối `rip` - `rip` relative addressing, nhưng giờ chúng ta đang ở trong [protected mode](https://en.wikipedia.org/wiki/Protected_mode) thôi. Chúng ta sẽ sử dụng một cách quen thuộc để biết địa chỉ của hàm `startup_32`. Chúng ta tạo một nhãn, thực hiện lời gọi đến nhãn này, ở đó lấy giá trị từ đỉnh stack (pop) đưa vào một thanh ghi:
 
 ```assembly
 call label
 label: pop %reg
 ```
 
-After this a register will contain the address of a label. Let's look to the similar code which search address of the `startup_32` in the Linux kernel:
+Sau bước này, thanh ghĩ sẽ chứa địa chỉ của nhãn. Hãy cùng xem một đoạn code tương tự để xác định địa chỉ của hàm `startup_32` trong nhân Linux:
 
 ```assembly
 	leal	(BP_scratch+4)(%esi), %esp
@@ -184,7 +202,7 @@ After this a register will contain the address of a label. Let's look to the sim
 	subl	$1b, %ebp
 ```
 
-As you remember from the previous part, the `esi` register contains the address of the [boot_params](https://github.com/torvalds/linux/blob/master/arch/x86/include/uapi/asm/bootparam.h#L113) structure which was filled before we moved to the protected mode. The `boot_params` structure contains a special field `scratch` with offset `0x1e4`. These four bytes field will be temporary stack for `call` instruction. We are getting the address of the `scratch` field + 4 bytes and putting it in the `esp` register. We add `4` bytes to the base of the `BP_scratch` field because, as just described, it will be a temporary stack and the stack grows from top to down in `x86_64` architecture. So our stack pointer will point to the top of the stack. Next we can see the pattern that I've described above. We make a call to the `1f` label and put the address of this label to the `ebp` register, because we have return address on the top of stack after the `call` instruction will be executed. So, for now we have an address of the `1f` label and now it is easy to get address of the `startup_32`. We just need to subtract address of label from the address which we got from the stack:
+Như đã biết từ phần trước, cái thanh ghi `esi` chứa địa chỉ của cấu trúc [boot_params](https://github.com/torvalds/linux/blob/master/arch/x86/include/uapi/asm/bootparam.h#L113), cái chỗ mà sẽ được điền trước khi nhảy sang chế độ protected mode. Cấu cấu trúc `boot_params` chứa một trường đặc biệt tên là `scratch` với offset là `0x1e4`. Trường 4 byte đặc biệt này sẽ là stack tạm thời cho lệnh asm `call`. Chúng ta đang lấy địa chỉ của trường `scratch` + 4 bytes và đặt nó vào thanh ghi `esp`. Chúng ta đã cộng `4` bytes vào địa chỉ của trường `BP_scratch` bởi vì đơn giản như đã miêu tả, nó sẽ là một stack, và nó sẽ phình ra theo chiều từ trên xuống dưới trong kiến trúc `x86_64`. Vì thế con trỏ của chúng ta sẽ chỉ đến đỉnh của stack. Sau đó chúng ta có thể thấy cái xử lý tương tự như tôi đã miêu tả ở trên. Chúng ta thực hiện một lời gọi đến nhãn `1f`, rồi đặt địa chỉ của nhãn này vào thanh ghi `ebp`, bởi vì địa chỉ của nhãn được đưa vào đỉnh stack khi thực hiện lệnh asm `call` rồi. Vì thế, giờ chúng ta đã có địa chỉ của nhãn `1f` rồi và rất dễ dàng để lấy được địa chỉ của hàm `startup_32`. Chúng ta cần trừ địa chỉ hiện tại một lượng bằng đúng địa chỉ lấy được từ đỉnh stack:
 
 ```
 startup_32 (0x0)     +-----------------------+
@@ -202,7 +220,7 @@ startup_32 (0x0)     +-----------------------+
                      +-----------------------+
 ```
 
-`startup_32` is linked to run at address `0x0` and this means that `1f` has the address `0x0 + offset to 1f`, approximately `0x21` bytes. The `ebp` register contains the real physical address of the `1f` label. So, if we subtract `1f` from the `ebp` we will get the real physical address of the `startup_32`. The Linux kernel [boot protocol](https://www.kernel.org/doc/Documentation/x86/boot.txt) describes that the base of the protected mode kernel is `0x100000`. We can verify this with [gdb](https://en.wikipedia.org/wiki/GNU_Debugger). Let's start the debugger and put breakpoint to the `1f` address, which is `0x100021`. If this is correct we will see `0x100021` in the `ebp` register:
+Hàm `startup_32` được linked để chạy từ địa chỉ `0x0` điều này có nghĩa rằng `1f` sẽ có địa chỉ bằng `0x0 + offset đến nhãn 1f`, tương đương với `0x21` bytes. Cái thanh ghi `ebp` chứa địa chỉ vật lý thực - real physical address của nhãn `1f`. Vì thế, nếu chúng ta trừ một lượng `1f` từ `ebp` chúng ta sẽ có được địa chỉ vật lý của `startup_32`. Giao thức boot nhân Linux [boot protocol](https://www.kernel.org/doc/Documentation/x86/boot.txt) địa chỉ base của kernel trong chế độ protected mode là `0x100000`. Chúng ta có thể kiểm tra điều này bằng [gdb](https://en.wikipedia.org/wiki/GNU_Debugger). Bật debugger và đặt breakpoint ở địa chỉ `1f` address, tức địa chỉ thực là `0x100021`. Nếu là đúng, chúng ta sẽ thấy giá trị `0x100021` trong thanh ghi `ebp`:
 
 ```
 $ gdb
@@ -234,7 +252,7 @@ fs             0x18	0x18
 gs             0x18	0x18
 ```
 
-If we execute the next instruction, `subl $1b, %ebp`, we will see:
+Nếu chúng ta thực hiện lệnh asm tiếp theo, tức là `subl $1b, %ebp`, chúng ta sẽ thấy:
 
 ```
 nexti
@@ -243,12 +261,12 @@ ebp            0x100000	0x100000
 ...
 ```
 
-Ok, that's true. The address of the `startup_32` is `0x100000`. After we know the address of the `startup_32` label, we can prepare for the transition to [long mode](https://en.wikipedia.org/wiki/Long_mode). Our next goal is to setup the stack and verify that the CPU supports long mode and [SSE](http://en.wikipedia.org/wiki/Streaming_SIMD_Extensions).
+OK, vậy là đúng rồi. Địa chỉ của hàm `startup_32` nằm ở `0x100000`. Sau khi biết địa chỉ của nhãn `startup_32`, chúng ta có thể chuẩn bị để chuyển sang chế độ [long mode](https://en.wikipedia.org/wiki/Long_mode). Mục tiêu tiếp theo của chúng ta là thiết lập stack kiểm tra để chằng rằng CPU hỗ trợ chế độ long mode [SSE](http://en.wikipedia.org/wiki/Streaming_SIMD_Extensions).
 
-Stack setup and CPU verification
+Thiết lập stack và kiểm tra CPU
 --------------------------------------------------------------------------------
 
-We could not setup the stack while we did not know the address of the `startup_32` label. We can imagine the stack as an array and the stack pointer register `esp` must point to the end of this array. Of course we can define an array in our code, but we need to know its actual address to configure the stack pointer in a correct way. Let's look at the code:
+Chúng ta không thể thiết lập stack trong khi không biết địa chỉ thực của nhãn `startup_32`. Chúng ta có thể tưởng tượng rằng stack giống như một cái mảng và thanh ghi chứa con trỏ stack `esp` sẽ trỏ đến phần tử cuối cùng của mảng đó. Tất nhiên chúng ta có thể định nghĩa một mảng trong code, nhưng bạn cần biết địa chỉ thực để cấu hình con trỏ stack cho đúng. Cùng nhìn vào code xem sao:
 
 ```assembly
 	movl	$boot_stack_end, %eax
@@ -256,7 +274,7 @@ We could not setup the stack while we did not know the address of the `startup_3
 	movl	%eax, %esp
 ```
 
-The `boot_stack_end` label, defined in the same [arch/x86/boot/compressed/head_64.S](https://github.com/torvalds/linux/blob/master/arch/x86/boot/compressed/head_64.S) assembly source code file and located in the [.bss](https://en.wikipedia.org/wiki/.bss) section:
+Cái nhãn `boot_stack_end`, cũng được định nghĩa trong file mã nguồn asm [arch/x86/boot/compressed/head_64.S](https://github.com/torvalds/linux/blob/master/arch/x86/boot/compressed/head_64.S) sẽ được đưa vào section [.bss](https://en.wikipedia.org/wiki/.bss):
 
 ```assembly
 	.bss
@@ -268,9 +286,9 @@ boot_stack:
 boot_stack_end:
 ```
 
-First of all, we put the address of `boot_stack_end` into the `eax` register, so the `eax` register contains the address of `boot_stack_end` where it was linked, which is `0x0 + boot_stack_end`. To get the real address of `boot_stack_end`, we need to add the real address of the `startup_32`. As you remember, we have found this address above and put it to the `ebp` register. In the end, the register `eax` will contain real address of the `boot_stack_end` and we just need to put to the stack pointer.
+Đầu tiên nhất, đặc địa chỉ của nhãn `boot_stack_end` vào thanh ghi `eax` register, vì thế thanh ghi `eax` sẽ chứa địa chỉ của `boot_stack_end` nơi nó được linked, hay nằm ở vị trí tương đối `0x0 + boot_stack_end`. Để lấy địa chỉ thực của `boot_stack_end`, chỉ cần cộng vị trí tương đối với địa chỉ thực của `startup_32` là xong. Bạn có thể nhớ, chúng ta đã tìm ra địa chỉ này ở trên và để vào thanh ghi `ebp` rồi. Cuối cùng, thanh ghi `eax` sẽ chứa địa chỉ thực của `boot_stack_end` và giờ chúng ta cần đặt nó con trỏ stack.
 
-After we have set up the stack, next step is CPU verification. As we are going to execute transition to the `long mode`, we need to check that the CPU supports `long mode` and `SSE`. We will do it by the call of the `verify_cpu` function:
+Sau khi chúng thiết lập stack, tiếp theo sẽ là xác nhận CPU. Khi chúng ta định thực hiện việc chuyển sang `long mode`, chúng ta cần kiểm tra xem CPU có hỗ trợ `long mode` và `SSE` không. Điều này được thực hiện bằng cách gọi hàm `verify_cpu`:
 
 ```assembly
 	call	verify_cpu
@@ -278,9 +296,9 @@ After we have set up the stack, next step is CPU verification. As we are going t
 	jnz	no_longmode
 ```
 
-This function defined in the [arch/x86/kernel/verify_cpu.S](https://github.com/torvalds/linux/blob/master/arch/x86/kernel/verify_cpu.S) assembly file and just contains a couple of calls to the [cpuid](https://en.wikipedia.org/wiki/CPUID) instruction. This instruction is used for getting information about the processor. In our case it checks `long mode` and `SSE` support and returns `0` on success or `1` on fail in the `eax` register.
+Hàm này được định nghĩa trong trong file asm [arch/x86/kernel/verify_cpu.S](https://github.com/torvalds/linux/blob/master/arch/x86/kernel/verify_cpu.S) và đơn giản là chứa một loạt lời gọi đến lệnh asm [cpuid](https://en.wikipedia.org/wiki/CPUID). Lời gọi này được sử dụng để lấy thông tin từ CPU. Trong trường hợp của chúng ta, nó sẽ kiểm tra  `long mode` và `SSE` xem có được hỗ trợ không, rồi trả về `0` nếu có hoặc `1` nếu không được hỗ trợ thanh ghi `eax`.
 
-If the value of the `eax` is not zero, we jump to the `no_longmode` label which just stops the CPU by the call of the `hlt` instruction while no hardware interrupt will not happen:
+Nếu giá trị của `eax` khác zero, chúng ta sẽ nhảy sang nhãn `no_longmode`, ở đó nó đơn giản là dừng CPU bằng cách gọi hàm `hlt` và không có ngắt phần cứng nào xảy ra hết:
 
 ```assembly
 no_longmode:
@@ -289,12 +307,12 @@ no_longmode:
 	jmp     1b
 ```
 
-If the value of the `eax` register is zero, everything is ok and we are able to continue.
+Nếu giá trị thanh ghi `eax` bằng zero, mọi thứ ok và chúng ta sẽ tiếp tục.
 
-Calculate relocation address
+Tính toán địa chỉ để tái định vị
 --------------------------------------------------------------------------------
 
-The next step is calculating relocation address for decompression if needed. First we need to know what it means for a kernel to be `relocatable`. We already know that the base address of the 32-bit entry point of the Linux kernel is `0x100000`, but that is a 32-bit entry point. The default base address of the Linux kernel is determined by the value of the `CONFIG_PHYSICAL_START` kernel configuration option. Its default value is `0x1000000` or `16 MB`. The main problem here is that if the Linux kernel crashes, a kernel developer must have a `rescue kernel` for [kdump](https://www.kernel.org/doc/Documentation/kdump/kdump.txt) which is configured to load from a different address. The Linux kernel provides special configuration option to solve this problem: `CONFIG_RELOCATABLE`. As we can read in the documentation of the Linux kernel:
+Bước tiếp theo, là tính toán địa chỉ để định vị lại cho việc giải nén - decompress nếu cần cần giải nén nhân. Đầu tiên chúng ta cần viết với nhân thì `relocatable` nghĩa là gì. Chúng ta đã biết rằng, địa chỉ base của đầu vào 32-bit - 32bit entry point của Linux kernel là `0x100000`, nhưng đó chỉ là điểm đầu vào 32-bit. Địa chỉ base của nhân Linux được xác định bởi giá trị cấu hình nhân `CONFIG_PHYSICAL_START`. Giá trị mặc định của nó là `0x1000000` hoặc `16 MB`. Vấn đề chính ở đây là nếu nhân Linux kernel bị crashed, người phát triển nhân phải `cứu nhân` - `rescue kernel` để thực hiện dump bằng [kdump](https://www.kernel.org/doc/Documentation/kdump/kdump.txt) được cấu hình để load từ một địa chỉ khác. Nhân Linux cung cấp một lựa chọn cấu hình đặc biệt để giải quyết vấn đề này, đó là: `CONFIG_RELOCATABLE`. Như một đoạn sau đây ở trong tài liệu về nhân Linux:
 
 ```
 This builds a kernel image that retains relocation information
@@ -305,13 +323,13 @@ it has been loaded at and the compile time physical address
 (CONFIG_PHYSICAL_START) is used as the minimum location.
 ```
 
-In simple terms this means that the Linux kernel with the same configuration can be booted from different addresses. Technically, this is done by compiling the decompressor as [position independent code](https://en.wikipedia.org/wiki/Position-independent_code). If we look at [arch/x86/boot/compressed/Makefile](https://github.com/torvalds/linux/blob/master/arch/x86/boot/compressed/Makefile), we will see that the decompressor is indeed compiled with the `-fPIC` flag:
+Nói đơn giản, thì nhân Linux với cùng một cấu hình có thể boot từ nhiều địa chỉ khác nhau. Về mặt kĩ thuật, điều này có thể được thực hiện bằng cách biên dịch bộ giả nén nhân - decompressor ở dạng code không phụ thuộc vị trí [position independent code](https://en.wikipedia.org/wiki/Position-independent_code). Nếu nhìn vào [arch/x86/boot/compressed/Makefile](https://github.com/torvalds/linux/blob/master/arch/x86/boot/compressed/Makefile), chúng ta sẽ thấy đoạn dành cho decompressor được biên dịch với cờ `-fPIC`:
 
 ```Makefile
 KBUILD_CFLAGS += -fno-strict-aliasing -fPIC
 ```
 
-When we are using position-independent code an address is obtained by adding the address field of the command and the value of the program counter. We can load code which uses such addressing from any address. That's why we had to get the real physical address of `startup_32`. Now let's get back to the Linux kernel code. Our current goal is to calculate an address where we can relocate the kernel for decompression. Calculation of this address depends on `CONFIG_RELOCATABLE` kernel configuration option. Let's look at the code:
+Khi bạn sử dụng code phụ thuộc vị trí position-independent code an address is obtained by adding the address field of the command and the value of the program counter. We can load code which uses such addressing from any address. That's why we had to get the real physical address of `startup_32`. Now let's get back to the Linux kernel code. Our current goal is to calculate an address where we can relocate the kernel for decompression. Calculation of this address depends on `CONFIG_RELOCATABLE` kernel configuration option. Let's look at the code:
 
 ```assembly
 #ifdef CONFIG_RELOCATABLE

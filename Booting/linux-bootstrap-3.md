@@ -1,23 +1,23 @@
-Kernel booting process. Part 3.
+Quá trình khởi động nhân. Phần 3 
 ================================================================================
 
-Video mode initialization and transition to protected mode
+Khởi tạo chế độ Video mode và chuyển sang protected mode
 --------------------------------------------------------------------------------
 
-This is the third part of the `Kernel booting process` series. In the previous [part](linux-bootstrap-2.md#kernel-booting-process-part-2), we stopped right before the call of the `set_video` routine from [main.c](https://github.com/torvalds/linux/blob/master/arch/x86/boot/main.c#L181). In this part, we will see:
-- video mode initialization in the kernel setup code,
-- preparation before switching into protected mode,
-- transition to protected mode
+Đây là phần 3 trong series nói về `Quá trình khởi động nhân`. Trong [part](linux-bootstrap-2.md#kernel-booting-process-part-2) trước, chúng ta đang dừng lại trước lời gọi hàm `set_video` trong [main.c](https://github.com/torvalds/linux/blob/master/arch/x86/boot/main.c#L181). Trong phần này, chúng ta sẽ xem:
+- khởi tạo  video mode trong code setup của kernel,
+- các chuẩn bị trước khi chuyển sang protected mode,
+- chuyển sang protected mode
 
-**NOTE** If you don't know anything about protected mode, you can find some information about it in the previous [part](linux-bootstrap-2.md#protected-mode). Also there are a couple of [links](linux-bootstrap-2.md#links) which can help you.
+**Chú ý** Nếu bạn chưa biết gì về protected mode, bạn có thể tìm thấy thông tin về nó ở [part](linux-bootstrap-2.md#protected-mode) trước. Cũng có một danh sách [links](linux-bootstrap-2.md#links) tham khảo mà có thể giúp ích cho bạn.
 
-As I wrote above, we will start from the `set_video` function which is defined in the [arch/x86/boot/video.c](https://github.com/torvalds/linux/blob/master/arch/x86/boot/video.c#L315) source code file. We can see that it starts by first getting the video mode from the `boot_params.hdr` structure:
+Như đã viết ở trên, chúng ta sẽ bắt đầu từ hàm `set_video` được định nghĩa ở file source [arch/x86/boot/video.c](https://github.com/torvalds/linux/blob/master/arch/x86/boot/video.c#L315). Chúng ta thấy rằng, nó bắt đầu bằng việc đọc thiết lập video mode từ cấu trúc `boot_params.hdr`:
 
 ```C
 u16 mode = boot_params.hdr.vid_mode;
 ```
 
-which we filled in the `copy_boot_params` function (you can read about it in the previous post). `vid_mode` is an obligatory field which is filled by the bootloader. You can find information about it in the kernel boot protocol:
+Chính là giá trị chúng ta đã điền trong hàm `copy_boot_params`( bạn có thể đọc về nó ở phần trước của series). `vid_mode` là trường bắt buộc được điền bởi bootloader. Bạn có thể tìm thấy thông tin về nó ở đặc tả giao thức khởi động nhân:
 
 ```
 Offset	Proto	Name		Meaning
@@ -25,7 +25,7 @@ Offset	Proto	Name		Meaning
 01FA/2	ALL	    vid_mode	Video mode control
 ```
 
-As we can read from the linux kernel boot protocol:
+Như đoạn được trích từ giao thức khởi động nhân:
 
 ```
 vga=<mode>
@@ -37,55 +37,55 @@ vga=<mode>
 	line is parsed.
 ```
 
-So we can add `vga` option to the grub or another bootloader configuration file and it will pass this option to the kernel command line. This option can have different values as mentioned in the description. For example, it can be an integer number `0xFFFD` or `ask`. If you pass `ask` to `vga`, you will see a menu like this:
+Vì thế, bạn có thể thêm tham số `vga` vào file cấu hình của grub hoặc một bootloader khác, nó sau đó sẽ truyền các tham số này đến dòng lệnh của nhân. Tham số này có thể nhận các giá trị khác giống như phần miêu tả ở trên có nói. Ví dụ, nó có thể là một số nguyên dạng `0xFFFD` hoặc `ask`. Nếu truyền vào giá trị `ask` cho `vga`, bạn sẽ thấy menu giống như thế này:
 
 ![video mode setup menu](http://oi59.tinypic.com/ejcz81.jpg)
 
-which will ask to select a video mode. We will look at its implementation, but before diving into the implementation we have to look at some other things.
+Nó sẽ hỏi để chọn một video mode. Chúng ta cùng xem xét bên trong hàm, nhưng để hiểu tốt hơn trước chúng ta sẽ tìm hiểu một vài thức khác.
 
-Kernel data types
+Kiểu dữ liệu trong nhân
 --------------------------------------------------------------------------------
 
-Earlier we saw definitions of different data types like `u16` etc. in the kernel setup code. Let's look at a couple of data types provided by the kernel:
+Ở các phần trước, chúng ta đã nhìn thấy các kiểu dữ liệu được sử dụng kiểu như `u16` chẳng hạn trong code thiết lập nhân. Chúng ta cùng xem một loại kiểu dữ liệu được sử dụng trong nhân:
 
 
 | Type | char | short | int | long | u8 | u16 | u32 | u64 |
 |------|------|-------|-----|------|----|-----|-----|-----|
 | Size |  1   |   2   |  4  |   8  |  1 |  2  |  4  |  8  |
 
-If you read the source code of the kernel, you'll see these very often and so it will be good to remember them.
+Nếu bạn đọc code của nhân, bạn sẽ thấy chúng rất thường xuyên, tốt hơn chúng ta nên nhớ chúng.
 
-Heap API
+API cho Heap
 --------------------------------------------------------------------------------
 
-After we get `vid_mode` from `boot_params.hdr` in the `set_video` function, we can see the call to the `RESET_HEAP` function. `RESET_HEAP` is a macro which is defined in [boot.h](https://github.com/torvalds/linux/blob/master/arch/x86/boot/boot.h#L199). It is defined as:
+Sau khi lấy giá trị `vid_mode` từ `boot_params.hdr` trong hàm `set_video`, Chúng ta có thể thấy một lời gọi đến hàm thông qua macro `RESET_HEAP`. `RESET_HEAP` là macro được định nghĩa ở [boot.h](https://github.com/torvalds/linux/blob/master/arch/x86/boot/boot.h#L199). Định nghĩa của nó như sau:
 
 ```C
 #define RESET_HEAP() ((void *)( HEAP = _end ))
 ```
 
-If you have read the second part, you will remember that we initialized the heap with the [`init_heap`](https://github.com/torvalds/linux/blob/master/arch/x86/boot/main.c#L116) function. We have a couple of utility functions for heap which are defined in `boot.h`. They are:
+Nếu bạn đã đọc phần 2 của series này, bạn sẽ nhớ ra rằng chúng ta đã khởi tạo heap bằng hàm [`init_heap`](https://github.com/torvalds/linux/blob/master/arch/x86/boot/main.c#L116). Chúng ta cũng có một nhóm các hàm dành cho thao tác với  heap, chúng được định nghĩa ở `boot.h`. Đó là:
 
 ```C
 #define RESET_HEAP()
 ```
 
-As we saw just above, it resets the heap by setting the `HEAP` variable equal to `_end`, where `_end` is just `extern char _end[];`
+Như chúng ta thấy ở trên, nó reset bộ nhớ heap bằng cách gán giá trị biến `HEAP` bằng `_end`, `_end` ở đây đơn giản được lấy từ định nghĩa `extern char _end[];`
 
-Next is the `GET_HEAP` macro:
+Tiếp theo đó là `GET_HEAP` macro:
 
 ```C
 #define GET_HEAP(type, n) \
 	((type *)__get_heap(sizeof(type),__alignof__(type),(n)))
 ```
 
-for heap allocation. It calls the internal function `__get_heap` with 3 parameters:
+để cấp phát bộ nhớ heap. Macro này gọi một hàm khác có tên `__get_heap` với 3 tham số gồm:
 
-* size of a type in bytes, which need be allocated
-* `__alignof__(type)` shows how variables of this type are aligned
-* `n` tells how many items to allocate
+* kích thước của kiểu (theo bytes) cho mỗi phần tử
+* `__alignof__(type)` chỉ ra biến này được `aligned` như thế nào 
+* `n` số phần tử sẽ cấp phát
 
-Implementation of `__get_heap` is:
+Xử lý của hàm `__get_heap` như sau:
 
 ```C
 static inline char *__get_heap(size_t s, size_t a, size_t n)
@@ -99,15 +99,15 @@ static inline char *__get_heap(size_t s, size_t a, size_t n)
 }
 ```
 
-and further we will see its usage, something like:
+và cách hàm sử dụng của nó, giống như sau:
 
 ```C
 saved.data = GET_HEAP(u16, saved.x * saved.y);
 ```
 
-Let's try to understand how `__get_heap` works. We can see here that `HEAP` (which is equal to `_end` after `RESET_HEAP()`) is the address of aligned memory according to the `a` parameter. After this we save the memory address from `HEAP` to the `tmp` variable, move `HEAP` to the end of the allocated block and return `tmp` which is the start address of allocated memory.
+Hãy cùng nhau xem xét `__get_heap` hoạt động như thế nào. Chúng ta thấy ở đây, giá trị `HEAP` ( được gán bằng `_end` sau hàm `RESET_HEAP()`) chính là địa chỉ ô nhớ (đã aligned) của tham số `a`. Sau bước này, chúng ta sẽ lưu địa chỉ của `HEAP` sang biến `tmp`, rồi di chuyển `HEAP` về cuối của block được cấp phát và trả về giá trị `tmp` chính là địa chỉ bắt đầu của ô nhớ được cấp phát.
 
-And the last function is:
+Và hàm cuối cùng trong nhóm liên quan đến heap là:
 
 ```C
 static inline bool heap_free(size_t n)
@@ -116,29 +116,29 @@ static inline bool heap_free(size_t n)
 }
 ```
 
-which subtracts value of the `HEAP` from the `heap_end` (we calculated it in the previous [part](linux-bootstrap-2.md)) and returns 1 if there is enough memory for `n`.
+ở đây một lượng `HEAP` được trừ đi từ `heap_end` ( như đã tính toán ở [part](linux-bootstrap-2.md) trước) và trả về giá trị 1 nếu nếu bộ nhớ còn trống lơn hơn `n`.
 
-That's all. Now we have a simple API for heap and can setup video mode.
+Tất cả rồi đó. Giờ chúng ta đã có một nhóm API cho heap rồi, giờ có thể đến phần thiết lập video mode.
 
-Set up video mode
+Thiết lập video mode
 --------------------------------------------------------------------------------
 
-Now we can move directly to video mode initialization. We stopped at the `RESET_HEAP()` call in the `set_video` function. Next is the call to  `store_mode_params` which stores video mode parameters in the `boot_params.screen_info` structure which is defined in [include/uapi/linux/screen_info.h](https://github.com/0xAX/linux/blob/master/include/uapi/linux/screen_info.h).
+Bây giờ chúng ta chuyển sang phần khởi tạo  video mode được rồi. Trước đó, chúng ta đang dừng tại lời gọi hàm `RESET_HEAP()` trong hàm  `set_video`. Tiếp theo đó đến lời gọi `store_mode_params` để lưu các tham số dành cho video mode có trong trường `boot_params.screen_info`, được định nghĩa tại [include/uapi/linux/screen_info.h](https://github.com/0xAX/linux/blob/master/include/uapi/linux/screen_info.h).
 
-If we look at the `store_mode_params` function, we can see that it starts with the call to the `store_cursor_position` function. As you can understand from the function name, it gets information about cursor and stores it.
+Hãy xem hàm `store_mode_params`, chúng ta thấy rằng, nó bắt đầu bằng lời gọi hàm `store_cursor_position`. Từ tên của hàm này, bạn cũng có thể hiểu được, nó lấy thông tin con trỏ màn hình và lưu vào đó.
 
-First of all `store_cursor_position` initializes two variables which have type `biosregs` with `AH = 0x3`, and calls `0x10` BIOS interruption. After the interruption is successfully executed, it returns row and column in the `DL` and `DH` registers. Row and column will be stored in the `orig_x` and `orig_y` fields from the `boot_params.screen_info` structure.
+ Trong hàm `store_cursor_position`, đầu tiên nó khởi tạo 2 biến có kiểu là `biosregs` với giá trị `AH = 0x3`, và thực hiện gọi ngắt BIOS `0x10`. Sau khi ngắt được thực hiện thành công, giá trị hàng và cột của con trỏ sẽ được lư ở thanh ghi `DL` và `DH`. Hàng và cột được lưu ở 2 trường `orig_x` và `orig_y` trong cấu trúc `boot_params.screen_info`.
 
-After `store_cursor_position` is executed, the `store_video_mode` function will be called. It just gets the current video mode and stores it in `boot_params.screen_info.orig_video_mode`. 
+ Sau khi hàm `store_cursor_position` được chạy, đến hàm `store_video_mode` sẽ được gọi. Nó đơn giản là lấy giá trị hiện tại của video mode và lưu vào trong `boot_params.screen_info.orig_video_mode` mà thôi. 
 
-After this, it checks the current video mode and sets the `video_segment`. After the BIOS transfers control to the boot sector, the following addresses are for video memory:
+Tiếp đó, nó sẽ kiểm tra video mode hiện tại và gán giá trị `video_segment`. Sau khi BIOS truyền điều khiển đến boot sector, những địa chỉ sau sẽ dành cho video memory:
 
 ```
 0xB000:0x0000 	32 Kb 	Monochrome Text Video Memory
 0xB800:0x0000 	32 Kb 	Color Text Video Memory
 ```
 
-So we set the `video_segment` variable to `0xB000` if the current video mode is MDA, HGC, or VGA in monochrome mode and to `0xB800` if the current video mode is in color mode. After setting up the address of the video segment, font size needs to be stored in `boot_params.screen_info.orig_video_points` with:
+ Vì thế, chúng ta sẽ gán giá trị biến `video_segment` bằng `0xB000` nếu video mode hiện tại là MDA, HGC, hoặc VGA trong monochrome mode (đen trắng) và bằng giá trị `0xB800` nếu video mode hiện tại trong color mode (chế độ màu). Sau khi thiết lập địa chỉ của video segment, kích thước font cũng phải được lưu vào `boot_params.screen_info.orig_video_points` bằng đoạn lệnh sau:
 
 ```C
 set_fs(0);
@@ -146,16 +146,16 @@ font_size = rdfs16(0x485);
 boot_params.screen_info.orig_video_points = font_size;
 ```
 
-First of all we put 0 in the `FS` register with the `set_fs` function. We already saw functions like `set_fs` in the previous part. They are all defined in [boot.h](https://github.com/0xAX/linux/blob/master/arch/x86/boot/boot.h). Next we read the value which is located at address `0x485` (this memory location is used to get the font size) and save the font size in `boot_params.screen_info.orig_video_points`.
+ Đầu tiên, chúng ta đặc giá trị 0 vào thanh ghi `FS` bằng hàm `set_fs`. Chúng ta lại thấy hàm `set_fs` đã được nhắc đến ở phần trước. Tất cả chúng được định nghĩa trong [boot.h](https://github.com/0xAX/linux/blob/master/arch/x86/boot/boot.h). Tiếp theo, chúng ta đọc các giá trị được lưu ở địa chỉ `0x485` (địa chỉ này được sử dụng để lấy kích thước font chữ), rồi lưu vào trường `boot_params.screen_info.orig_video_points`.
 
 ```
  x = rdfs16(0x44a);
  y = (adapter == ADAPTER_CGA) ? 25 : rdfs8(0x484)+1;
 ```
 
-Next we get the amount of columns by address `0x44a` and rows by address `0x484` and store them in `boot_params.screen_info.orig_video_cols` and `boot_params.screen_info.orig_video_lines`. After this, execution of `store_mode_params` is finished.
+Tiếp theo, chúng ta sẽ lấy số cột tại địa chỉ `0x44a` và số dòng tại địa chỉ `0x484`, sau đó lưu chúng vào `boot_params.screen_info.orig_video_cols` và `boot_params.screen_info.orig_video_lines` tương ứng. Đến đây, hàm `store_mode_params` kết thúc.
 
-Next we can see the `save_screen` function which just saves screen content to the heap. This function collects all data which we got in the previous functions like rows and columns amount etc. and stores it in the `saved_screen` structure, which is defined as:
+Tiếp theo, chúng ta sẽ thấy hàm `save_screen`, đơn giản là lưu nội dung màn hình vào heap. Hàm này sẽ tập hợp các thông tin ta lấy ở hàm trước đó như số hàng, cột etc. và lưu vào cấu trúc tên là `saved_screen`, được định nghĩa như bên dưới đây:
 
 ```C
 static struct saved_screen {
@@ -165,24 +165,24 @@ static struct saved_screen {
 } saved;
 ```
 
-It then checks whether the heap has free space for it with:
+Sau đó, nó kiểm tra heap xem đủ vùng trống cho nó không:
 
 ```C
 if (!heap_free(saved.x*saved.y*sizeof(u16)+512))
 		return;
 ```
 
-and allocates space in the heap if it is enough and stores `saved_screen` in it.
+rồi xin cấp phát nếu đủ, sau đó lưu giá trị kiểu cấu trúc `saved_screen` vào đó.
 
-The next call is `probe_cards(0)` from [arch/x86/boot/video-mode.c](https://github.com/0xAX/linux/blob/master/arch/x86/boot/video-mode.c#L33). It goes over all video_cards and collects the number of modes provided by the cards. Here is the interesting moment, we can see the loop:
+Lời gọi hàm tiếp theo là `probe_cards(0)` được định nghĩa ở [arch/x86/boot/video-mode.c](https://github.com/0xAX/linux/blob/master/arch/x86/boot/video-mode.c#L33). Nó xem thông tin video_cards và lấy các mode được cung cấp bởi các card này. Đây là một đoạn khá thú vị, chúng ta có thể thấy vòng lặp như sau:
 
 ```C
 for (card = video_cards; card < video_cards_end; card++) {
-  /* collecting number of modes here */
+  /* tập hợp thông tin các mode - collecting number of modes here */
 }
 ```
 
-but `video_cards` is not declared anywhere. Answer is simple: Every video mode presented in the x86 kernel setup code has definition like this:
+nhưng ở đây `video_cards` chưa được định nghĩa ở đâu hết. Câu trả lời khá đơn giản : Mỗi video mode biểu diễn trong code thiết lập nhân dành cho cấu trúc x86 được định nghĩa như sau:
 
 ```C
 static __videocard video_vga = {
@@ -192,13 +192,13 @@ static __videocard video_vga = {
 };
 ```
 
-where `__videocard` is a macro:
+ở đây, `__videocard` là một macro có định nghĩa như sau:
 
 ```C
 #define __videocard struct card_info __attribute__((used,section(".videocards")))
 ```
 
-which means that `card_info` structure:
+Cấu trúc `card_info` được định nghĩa như sau:
 
 ```C
 struct card_info {
@@ -213,7 +213,7 @@ struct card_info {
 };
 ```
 
-is in the `.videocards` segment. Let's look in the [arch/x86/boot/setup.ld](https://github.com/0xAX/linux/blob/master/arch/x86/boot/setup.ld) linker script, where we can find:
+định nghĩa bằng macro ở trên sẽ nằm trong segment `.videocards`. Cùng xem file script dành cho linker [arch/x86/boot/setup.ld](https://github.com/0xAX/linux/blob/master/arch/x86/boot/setup.ld), chúng ta có thể thấy:
 
 ```
 	.videocards	: {
@@ -223,13 +223,13 @@ is in the `.videocards` segment. Let's look in the [arch/x86/boot/setup.ld](http
 	}
 ```
 
-It means that `video_cards` is just a memory address and all `card_info` structures are placed in this  segment. It means that all `card_info` structures are placed between `video_cards` and `video_cards_end`, so we can use it in a loop to go over all of it.  After `probe_cards` executes we have all structures like `static __videocard video_vga` with filled `nmodes` (number of video modes).
+Cái này có nghĩa rằng `video_cards` đơn giản là một địa chỉ trên bộ nhớ và tất cả các biến cấu trúc `card_info` sẽ được đặt trong segment này. Có nghĩa là tất cả các biến cấu trúc `card_info` được đặt ở giữa `video_cards` và `video_cards_end`, vì thế chúng ta có thể sử dụng một vòng lặp để đi hết qua chúng. Sau khi hàm `probe_cards` chạy xong, chúng ta sẽ có tất cả các cấu trúc dạng `static __videocard video_vga` được gán `nmodes` ( số lượng video modes tương ứng).
 
-After `probe_cards` execution is finished, we move to the main loop in the `set_video` function. There is an infinite loop which tries to set up video mode with the `set_mode` function or prints a menu if we passed `vid_mode=ask` to the kernel command line or video mode is undefined. 
+Sau đó khi chạy hàm `probe_cards` xong, chúng ta sẽ bị quay trở lại vòng lặp chính trong hàm `set_video`. Trong đó, có một vòng lặp vô hạn để thiết lập video mode bằng hàm `set_mode`, hoặc in ra menu nếu kernel được truyền tham số `vid_mode=ask` hoặc không xác định được video mode. 
 
-The `set_mode` function is defined in [video-mode.c](https://github.com/0xAX/linux/blob/master/arch/x86/boot/video-mode.c#L147) and gets only one parameter, `mode`, which is the number of video modes (we got it from the menu or in the start of `setup_video`, from the kernel setup header). 
+Cái hàm `set_mode` được định nghĩa trong file mã nguồn [video-mode.c](https://github.com/0xAX/linux/blob/master/arch/x86/boot/video-mode.c#L147) và chỉ nhận 1 tham số, đó là `mode`, đó chính là số lượng video modes ( cái chúng ta nhận được từ menu hoặc trong đoạn đầu của hàm `setup_video`, từ header thiết lập nhân). 
 
-The `set_mode` function checks the `mode` and calls the `raw_set_mode` function. The `raw_set_mode` calls the `set_mode` function for the selected card i.e. `card->set_mode(struct mode_info*)`. We can get access to this function from the `card_info` structure. Every video mode defines this structure with values filled depending upon the video mode (for example for `vga` it is the `video_vga.set_mode` function. See above example of `card_info` structure for `vga`). `video_vga.set_mode` is `vga_set_mode`, which checks the vga mode and calls the respective function:
+Hàm `set_mode` sẽ kiểm tra `mode` và gọi hàm `raw_set_mode`. Hàm `raw_set_mode` sẽ gọi hàm `set_mode` cho video card tương ứng được chọn ví dụ `card->set_mode(struct mode_info*)`. Chúng ta có thể truy cập các hàm này thông qua cấu trúc `card_info`. Mỗi video mỗi định nghĩa một biến cấu trúc này và giá trị tương ứng với video mode ( ví dụ `vga` thì hàm tương ứng là `video_vga.set_mode`. Trong ví dụ về biến kiểu cấu trúc `card_info` cho `vga` ở trên). `video_vga.set_mode` là hàm `vga_set_mode`, hàm này sẽ kiểm tra vga mode và gọi hàm tương ứng function:
 
 ```C
 static int vga_set_mode(struct mode_info *mode)
@@ -265,24 +265,24 @@ static int vga_set_mode(struct mode_info *mode)
 }
 ```
 
-Every function which sets up video mode just calls the `0x10` BIOS interrupt with a certain value in the `AH` register.
+Mỗi hàm setup video mode, đơn giản bên trong gọi ngắt `0x10` với giá trị tương ứng được đặt ở thanh ghi `AH`.
 
-After we have set video mode, we pass it to `boot_params.hdr.vid_mode`.
+Sau khi thiết lập video mode, chúng ta sẽ gán vào `boot_params.hdr.vid_mode`.
 
-Next `vesa_store_edid` is called. This function simply stores the [EDID](https://en.wikipedia.org/wiki/Extended_Display_Identification_Data) (**E**xtended **D**isplay **I**dentification **D**ata) information for kernel use. After this `store_mode_params` is called again. Lastly, if `do_restore` is set, the screen is restored to an earlier state.
+Tiếp theo, hàm `vesa_store_edid` được gọi. Hàm này đơn giản là lưu thông tin [EDID](https://en.wikipedia.org/wiki/Extended_Display_Identification_Data) (**E**xtended **D**isplay **I**dentification **D**ata) để kernel sử dụng. Sau bước này, hàm `store_mode_params` được gọi một lần nữa. Cuối cùng, nếu giá trị `do_restore` được set, màn hình sẽ trở về trạng thái như lúc trước.
 
-After this we have set video mode and now we can switch to the protected mode.
+Đến đây, chúng ta đã xong phần thiết lập video mode, giờ là lúc chuyển sang protected mode.
 
-Last preparation before transition into protected mode
+Chuẩn bị cuối cùng trước khi chuyển sang protected mode
 --------------------------------------------------------------------------------
 
-We can see the last function call - `go_to_protected_mode` - in [main.c](https://github.com/torvalds/linux/blob/master/arch/x86/boot/main.c#L184). As the comment says: `Do the last things and invoke protected mode`, so let's see these last things and switch into protected mode.
+Bạn có thể thấy hàm chuẩn bị cuối cùng này - đó là `go_to_protected_mode` - nằm trong [main.c](https://github.com/torvalds/linux/blob/master/arch/x86/boot/main.c#L184). Trong comment có nói: ` Làm những việc cuối cùng và kích hoạt protected mode`, vì thế chúng ta cùng xem những thứ cuối cùng này và chuyển sang protected mode.
 
-`go_to_protected_mode` is defined in [arch/x86/boot/pm.c](https://github.com/torvalds/linux/blob/master/arch/x86/boot/pm.c#L104). It contains some functions which make the last preparations before we can jump into protected mode, so let's look at it and try to understand what they do and how it works.
+Hàm `go_to_protected_mode` được định nghĩa trong [arch/x86/boot/pm.c](https://github.com/torvalds/linux/blob/master/arch/x86/boot/pm.c#L104). Nó chứa một vài hàm thực hiện các chuẩn bị cuối cùng trước khi nhảy đến protected mode, vì thế chúng ta hãy xem nó làm gì và nó hoạt động ra sao.
 
-First is the call to the `realmode_switch_hook` function in `go_to_protected_mode`. This function invokes the real mode switch hook if it is present and disables [NMI](http://en.wikipedia.org/wiki/Non-maskable_interrupt). Hooks are used if the bootloader runs in a hostile environment. You can read more about hooks in the [boot protocol](https://www.kernel.org/doc/Documentation/x86/boot.txt) (see **ADVANCED BOOT LOADER HOOKS**).
+Đầu tiên là lời gọi hàm `realmode_switch_hook` bên trong hàm `go_to_protected_mode`. Hàm này sẽ kích hoạt một `hook` chuyển mode trong real mode nếu nó tồn tại và cũng tắt các [NMI](http://en.wikipedia.org/wiki/Non-maskable_interrupt). Các hooks sẽ được sử dụng nếu bootloeader chạy ở môi trường hostile environment. Bạn có thể đọc thêm về hooks ở tài liệu [boot protocol](https://www.kernel.org/doc/Documentation/x86/boot.txt) (xem phần **ADVANCED BOOT LOADER HOOKS**).
 
-The `realmode_switch` hook presents a pointer to the 16-bit real mode far subroutine which disables non-maskable interrupts. After `realmode_switch` hook (it isn't present for me) is checked, disabling of Non-Maskable Interrupts(NMI) occurs:
+Cái hook `realmode_switch` là địa chỉ trỏ đến một hàm ở trong chế độ 16-bit real mode, ở đó nó sẽ tắt các ngắt không che được đi (non-maskable interrupts), tức là không cho bất cứ ngắt nào xảy ra nữa. Sau khi kiểm tra có xem có hàm `realmode_switch` hay không (trong trường hợp của tôi thì không thấy có), việc tắt các ngắt không che được được thực hiện:
 
 ```assembly
 asm volatile("cli");
@@ -290,11 +290,11 @@ outb(0x80, 0x70);	/* Disable NMI */
 io_delay();
 ```
 
-At first there is an inline assembly instruction with a `cli` instruction which clears the interrupt flag (`IF`). After this, external interrupts are disabled. The next line disables NMI (non-maskable interrupt).
+Ở trên, ta thấy đầu tiên là một hàm inline gọi lệnh asm có tên `cli` để xóa các cờ ngắt (`IF`). Sau bước này, các ngắt từ bên ngoài (external interrupt) sẽ bị tắt. Rồi tắt NMI (non-maskable interrupt).
 
-An interrupt is a signal to the CPU which is emitted by hardware or software. After getting the signal, the CPU suspends the current instruction sequence, saves its state and transfers control to the interrupt handler. After the interrupt handler has finished it's work, it transfers control to the interrupted instruction. Non-maskable interrupts (NMI) are interrupts which are always processed, independently of permission. It cannot be ignored and is typically used to signal for non-recoverable hardware errors. We will not dive into details of interrupts now, but will discuss it in the next posts.
+Nói một chút về ngắt, một ngắt là một tín hiệu truyền đến CPU bởi phần mềm hoặc phần cứng. Sau khi nhận tín hiệu, CPU sẽ dừng dãy lệnh, cũng như trạng thái hiện tại, và truyền điều khiển đến hàm thực hiện ngắt (hay gọi là interrupt handler). Sau khi hàm thực hiện ngắt kết thúc công việc của nó, điều khiển sẽ được chuyển đến câu lệnh mà đã xảy ra ngắt trước đó. Ngắt không che được hay Non-maskable interrupts (NMI) là các ngắt mà luôn luôn được xử lý, không phụ thuộc quyền hạn hay hạn chế nào cả. Nó không thể bị bỏ qua, thông thường được sử dụng chuyển đến CPU một tín hiệu về các lỗi phần cứng nặng hay không thể phục hồi (non-recoverable hardware errors). Chúng ta sẽ không đi sau vào chi tiết ngắt ngay bây giờ, mà sẽ để lại ở các phần tiếp theo.
 
-Let's get back to the code. We can see that second line is writing `0x80` (disabled bit) byte to `0x70` (CMOS Address register). After that, a call to the `io_delay` function occurs. `io_delay` causes a small delay and looks like:
+Rồi, quay trở lại với code. Chúng ta thấy dòng thứ 2 ở đoạn code phía trên, đó là ghi giá trị `0x80` ( tức là bit tắt - disabled bit) vào địa chỉ `0x70` ( thanh ghi CMOS - CMOS Address register). Sau đó, gọi hàm `io_delay` . Hàm `io_delay` này thực hiện một delay nhỏ như sau :
 
 ```C
 static inline void io_delay(void)
@@ -304,9 +304,9 @@ static inline void io_delay(void)
 }
 ```
 
-To output any byte to the port `0x80` should delay exactly 1 microsecond. So we can write any value (value from `AL` register in our case) to the `0x80` port. After this delay `realmode_switch_hook` function has finished execution and we can move to the next function.
+Việc đẩy bất cứ giá trị nào đến địa chỉ `0x80` sẽ gây ra delay đúng 1 microsecond. Vì thế, chúng ta có thể viết bất cứ giá trị nào (ở đây, ta lấy giá trị từ thanh ghi `AL`) vào cổng `0x80`. Sau khi delay, hàm `realmode_switch_hook` coi như kết thúc xử lý và chúng ta chuyển đến hàm tiếp theo.
 
-The next function is `enable_a20`, which enables [A20 line](http://en.wikipedia.org/wiki/A20_line). This function is defined in [arch/x86/boot/a20.c](https://github.com/torvalds/linux/blob/master/arch/x86/boot/a20.c) and it tries to enable the A20 gate with different methods. The first is the `a20_test_short` function which checks if A20 is already enabled or not with the `a20_test` function:
+Hàm tiếp theo là `enable_a20`, thực hiện bật [A20 line](http://en.wikipedia.org/wiki/A20_line). Hàm này được định nghĩa ở [arch/x86/boot/a20.c](https://github.com/torvalds/linux/blob/master/arch/x86/boot/a20.c) và nó cố gắng bật cổng A20 theo nhiều cách khác nhau. Đầu tiên trong đó là hàm `a20_test_short` nó sẽ kiểm tra xem  A20 đã được bật chưa, nếu không nó sẽ gọi hàm `a20_test`:
 
 ```C
 static int a20_test(int loops)
@@ -332,11 +332,11 @@ static int a20_test(int loops)
 }
 ```
 
-First of all we put `0x0000` in the `FS` register and `0xffff` in the `GS` register. Next we read the value in address `A20_TEST_ADDR` (it is `0x200`) and put this value into the `saved` variable and `ctr`.
+Đầu tiên, chúng ta đặt giá trị `0x0000` vào thanh ghi `FS, và giá trị `0xffff` vào thanh ghi `GS`. Tiếp theo, chúng ta đọc giá trị ở địa chỉ `A20_TEST_ADDR` (đó là `0x200`), lưu các giá trị này vào biến `saved` và `ctr`.
 
-Next we write an updated `ctr` value into `fs:gs` with the `wrfs32` function, then delay for 1ms, and then read the value from the `GS` register by address `A20_TEST_ADDR+0x10`, if it's not zero we already have enabled the A20 line. If A20 is disabled, we try to enable it with a different method which you can find in the `a20.c`. For example with call of `0x15` BIOS interrupt with `AH=0x2041` etc.
+Sau đó chúng ta đưa giá trị biến `ctr` vào `fs:gs` bằng hàm `wrfs32`, tiếp đó delay 1ms, rồi đọc giá trị từ thanh ghi `GS` bằng địa chỉ `A20_TEST_ADDR+0x10`, nếu giá trị này khác 0 thì `A20 line` đã được bật rồi. Nếu A20 đang bị tắt, chúng ta sẽ cố gắng bật nó bằng những cách khác nữa, chi tiết có ở file `a20.c`. Ví dụ gọi ngắt BIOS `0x15`  với giá trị thanh ghi `AH=0x2041` etc.
 
-If the `enabled_a20` function finished with fail, print an error message and call function `die`. You can remember it from the first source code file where we started - [arch/x86/boot/header.S](https://github.com/torvalds/linux/blob/master/arch/x86/boot/header.S):
+Nếu hàm `enabled_a20` kết thúc mà không bật được, nó sẽ in ra lỗi và gọi hàm `die`. Bạn có thể nhớ ra đây là, hàm này nằm trong file source đầu tiên mà chúng ta đã xem - [arch/x86/boot/header.S](https://github.com/torvalds/linux/blob/master/arch/x86/boot/header.S):
 
 ```assembly
 die:
@@ -345,26 +345,26 @@ die:
 	.size	die, .-die
 ```
 
-After the A20 gate is successfully enabled, the `reset_coprocessor` function is called:
+Sau khi bật A20 thành công, hàm `reset_coprocessor` sẽ được gọi:
  ```C
 outb(0, 0xf0);
 outb(0, 0xf1);
 ```
-This function clears the Math Coprocessor by writing `0` to `0xf0` and then resets it by writing `0` to `0xf1`.
+Hàm này sẽ xóa cái Math Coprocessor bằng cách ghi giá trị `0` vào `0xf0`, sau đó reset bằng cách ghi `0` vào `0xf1`.
 
-After this, the `mask_all_interrupts` function is called:
+Sau bước này, hàm `mask_all_interrupts` sẽ được gọi:
 ```C
 outb(0xff, 0xa1);       /* Mask all interrupts on the secondary PIC */
 outb(0xfb, 0x21);       /* Mask all but cascade on the primary PIC */
 ```
-This masks all interrupts on the secondary PIC (Programmable Interrupt Controller) and primary PIC except for IRQ2 on the primary PIC.
+Hàm này sẽ che (mask) tất cả các ngắt trên PIC (Programmable Interrupt Controller) thứ 2 (secondary PIC) và PIC thứ nhất trừ IRQ2 trên PIC chính.
 
-And after all of these preparations, we can see the actual transition into protected mode.
+Sau tất cả các bước chuẩn bị ở trên, chúng ta có thể thấy các chuyển đổi sang chế độ protected mode.
 
-Set up Interrupt Descriptor Table
+Thiết lập bảng chứa các hàm xử lý ngắt (Interrupt Descriptor Table)
 --------------------------------------------------------------------------------
 
-Now we set up the Interrupt Descriptor table (IDT). `setup_idt`:
+Giờ chúng ta sẽ thực thiện thiết lập bảng chứa hàm xử lý ngắt - Interrupt Descriptor table (IDT). `setup_idt`:
 
 ```C
 static void setup_idt(void)
@@ -374,7 +374,7 @@ static void setup_idt(void)
 }
 ```
 
-which sets up the Interrupt Descriptor Table (describes interrupt handlers and etc.). For now the IDT is not installed (we will see it later), but now we just the load IDT with the `lidtl` instruction. `null_idt` contains address and size of IDT, but now they are just zero. `null_idt` is a `gdt_ptr` structure, it as defined as:
+ Nó sẽ setup IDT - Interrupt Descriptor Table ( hay các hàm xử lý ngắt, etc). Ngay bây giờ, thì IDT chưa có gì hết (chúng ta sẽ thấy nó sau), chúng ta sẽ load IDT bằng lệnh asm tên là `lidtl`. `null_idt` ở đây chứa địa chỉ và kích thước của IDT, nhưng giờ nó vẫn là zero thôi. `null_idt`  là biến kiểu cấu trúc `gdt_ptr`, nó được định nghĩa ở đây:
 ```C
 struct gdt_ptr {
 	u16 len;
@@ -382,12 +382,12 @@ struct gdt_ptr {
 } __attribute__((packed));
 ```
 
-where we can see the 16-bit length(`len`) of the IDT and the 32-bit pointer to it (More details about the IDT and interruptions will be seen in the next posts). ` __attribute__((packed))` means that the size of `gdt_ptr` is the minimum required size. So the size of the `gdt_ptr` will be 6 bytes here or 48 bits. (Next we will load the pointer to the `gdt_ptr` to the `GDTR` register and you might remember from the previous post that it is 48-bits in size).
+Ở đây, ta có thể thấy một biến chứa độ dài có size 16-bit (`len`) của IDT và con trỏ 32-bit (chi tiết hơn về IDT và các ngắt được thảo luận ở các phần sau). ` __attribute__((packed))` có nghĩa rằng kích thước của `gdt_ptr` sẽ được làm cho nhỏ nhất có thể. Vì thế, ta có thể tính được kích thước của biến `gdt_ptr` sẽ là 6 bytes hay 48 bits. ( Sau đó, chúng ta sẽ load biến `gdt_ptr` vào thanh ghi `GDTR`, cái mà bạn có thể nhớ ra từ bài trước có kích thước là 48-bits).
 
-Set up Global Descriptor Table
+Thiết lập bảng toàn cục (Global Descriptor Table)
 --------------------------------------------------------------------------------
 
-Next is the setup of the Global Descriptor Table (GDT). We can see the `setup_gdt` function which sets up GDT (you can read about it in the [Kernel booting process. Part 2.](linux-bootstrap-2.md#protected-mode)). There is a definition of the `boot_gdt` array in this function, which contains the definition of the three segments:
+Giờ đến thiết lập bảng toàn cục - Global Descriptor Table (GDT). Chúng ta có thể thấy hàm `setup_gdt` được sử dụng để thiết lập GDT (bạn có thể đọc thêm về nhó ở [Kernel booting process. Part 2.](linux-bootstrap-2.md#protected-mode)). Có một định nghĩa một biến mảng `boot_gdt` trong hàm này, trong đó lại chứa định nghĩa của 3 segment:
 
 ```C
 	static const u64 boot_gdt[] __attribute__((aligned(16))) = {
@@ -397,7 +397,7 @@ Next is the setup of the Global Descriptor Table (GDT). We can see the `setup_gd
 	};
 ```
 
-For code, data and TSS (Task State Segment). We will not use the task state segment for now, it was added there to make Intel VT happy as we can see in the comment line (if you're interested you can find commit which describes it - [here](https://github.com/torvalds/linux/commit/88089519f302f1296b4739be45699f06f728ec31)). Let's look at `boot_gdt`. First of all note that it has the `__attribute__((aligned(16)))` attribute. It means that this structure will be aligned by 16 bytes. Let's look at a simple example:
+ Tương ứng với code, data và TSS (Task State Segment). Chúng ta sẽ không sử dụng TTS - task state segment ngay bây giờ, nó được thêm vào để làm thỏa mãn Intel VT như chúng ta có thể thấy trong nội dung comment ( nếu muốn bạn có thể tìm thấy đoạn commit của nó tại - [here](https://github.com/torvalds/linux/commit/88089519f302f1296b4739be45699f06f728ec31)). Hãy xem `boot_gdt` như thế nào. Đầu tiên nhất ta thấy `__attribute__((aligned(16)))`. Có nghĩa rằng hàm này sẽ được align theo 16 bytes. Cùng xem một ví dụ như sau:
 ```C
 #include <stdio.h>
 
@@ -421,7 +421,7 @@ int main(void)
 }
 ```
 
-Technically a structure which contains one `int` field must be 4 bytes, but here `aligned` structure will be 16 bytes:
+Thông thường, thì một cấu trúc chỉ chứa một trường kiểu `int` như trên phải có kích thước 4 bytes, nhưng ở đây cấu trúc được thêm `aligned` như trên có kích thước 16 bytes:
 
 ```
 $ gcc test.c -o test && test
@@ -429,83 +429,83 @@ Not aligned - 4
 Aligned - 16
 ```
 
-`GDT_ENTRY_BOOT_CS` has index - 2 here, `GDT_ENTRY_BOOT_DS` is `GDT_ENTRY_BOOT_CS + 1` and etc. It starts from 2, because first is a mandatory null descriptor (index - 0) and the second is not used (index - 1).
+ Ở đây, `GDT_ENTRY_BOOT_CS` có index là 2, `GDT_ENTRY_BOOT_DS` thì bằng `GDT_ENTRY_BOOT_CS + 1`, etc. Nó bắt đầu từ 2, là vì phần tử đầu tiên bắt buộc phải là null (index - 0) và phần tử thứ 2 thì không được sử dụng (index - 1).
 
-`GDT_ENTRY` is a macro which takes flags, base and limit and builds GDT entry. For example let's look at the code segment entry. `GDT_ENTRY` takes following values:
+`GDT_ENTRY` là một macro, nó lấy giá trị các cờ, base rồi limit sau đó tạo phần tử cho GDT - GDT entry. Ví dụ ở đoạn tạo code segment entry. `GDT_ENTRY` sẽ lấy các giá trị sau:
 
 * base  - 0
 * limit - 0xfffff
 * flags - 0xc09b
 
-What does this mean? The segment's base address is 0, and the limit (size of segment) is - `0xffff` (1 MB). Let's look at the flags. It is `0xc09b` and it will be:
+Giá trị này có nghĩa là gì? Địa chỉ segment bằng 0, giới hạn (hay kích thước segment) là `0xffff` (tức 1 MB). Các giá trị cờ thì sao?. Ở đây, nó có giá trị `0xc09b`, hay sẽ giá trị như sau:
 
 ```
 1100 0000 1001 1011
 ```
 
-in binary. Let's try to understand what every bit means. We will go through all bits from left to right:
+ở dạng binary. Cùng nhau xem mỗi bit này có ý nghĩa gì. Chúng ta sẽ đi từ trái sang phải:
 
 * 1    - (G) granularity bit
-* 1    - (D) if 0 16-bit segment; 1 = 32-bit segment
-* 0    - (L) executed in 64 bit mode if 1
-* 0    - (AVL) available for use by system software
-* 0000 - 4 bit length 19:16 bits in the descriptor
-* 1    - (P) segment presence in memory
-* 00   - (DPL) - privilege level, 0 is the highest privilege
-* 1    - (S) code or data segment, not a system segment
-* 101  - segment type execute/read/
+* 1    - (D) Bằng 0 tức là segment 16-bit; 1 tức là 32-bit
+* 0    - (L) chạy trong 64 bit mode nếu là 1
+* 0    - (AVL) sử dụng bởi phần mềm hệ thống 
+* 0000 - 4 bit dành cho độ dài (19:16 bits) trong descriptor tương ứng 
+* 1    - (P) có hay không segment trong bộ nhớ 
+* 00   - (DPL) - privilege level, 0 là mức cao nhất 
+* 1    - (S) code hoặc data segment, không phải system segment
+* 101  - loại segment execute/read/
 * 1    - accessed bit
 
-You can read more about every bit in the previous [post](linux-bootstrap-2.md) or in the [Intel® 64 and IA-32 Architectures Software Developer's Manuals 3A](http://www.intel.com/content/www/us/en/processors/architectures-software-developer-manuals.html).
+ Bạn có thể đọc thêm về mỗi bit ở [post](linux-bootstrap-2.md) trước hoặc trong [Intel® 64 and IA-32 Architectures Software Developer's Manuals 3A](http://www.intel.com/content/www/us/en/processors/architectures-software-developer-manuals.html).
 
-After this we get the length of the GDT with:
+Sau đó, độ dài của GDT được lấy bằng câu lệnh sau:
 
 ```C
 gdt.len = sizeof(boot_gdt)-1;
 ```
 
-We get the size of `boot_gdt` and subtract 1 (the last valid address in the GDT).
+Bằng kích thước của `boot_gdt` trừ đi 1 (giá trị địa chỉ hợp lệ cuối cùng trong GDT).
 
-Next we get a pointer to the GDT with:
+Con trỏ đến GDT được lấy như sau:
 
 ```C
 gdt.ptr = (u32)&boot_gdt + (ds() << 4);
 ```
 
-Here we just get the address of `boot_gdt` and add it to the address of the data segment left-shifted by 4 bits (remember we're in the real mode now).
+Ở đây, ta thấy, đơn giản là lấy địa chỉ của `boot_gdt` và thêm nó vào địa chỉ của the data segment sau khi được dịch trái (left-shifted) 4 bits (nhớ là chúng ta vẫn đang ở trong real mode nha).
 
-Lastly we execute the `lgdtl` instruction to load the GDT into the GDTR register:
+Cuối cùng, chúng ta thực hiện lệnh asm tên `lgdtl` để load GDT vào thanh ghi GDTR:
 
 ```C
 asm volatile("lgdtl %0" : : "m" (gdt));
 ```
 
-Actual transition into protected mode
+Chuyển thực sự sang protected mode
 --------------------------------------------------------------------------------
 
-This is the end of the `go_to_protected_mode` function. We loaded IDT, GDT, disable interruptions and now can switch the CPU into protected mode. The last step is calling the `protected_mode_jump` function with two parameters:
+Đây là đoạn cuối của hàm `go_to_protected_mode`. Chúng ta đã thực hiện IDT, GDT, tắt các ngắt và giờ có thể chuyển CPU sang protected mode. Bước cuối cùng là gọi hàm `protected_mode_jump` với 2 tham số:
 
 ```C
 protected_mode_jump(boot_params.hdr.code32_start, (u32)&boot_params + (ds() << 4));
 ```
 
-which is defined in [arch/x86/boot/pmjump.S](https://github.com/torvalds/linux/blob/master/arch/x86/boot/pmjump.S#L26). It takes two parameters:
+Hàm này được định nghĩa ở [arch/x86/boot/pmjump.S](https://github.com/torvalds/linux/blob/master/arch/x86/boot/pmjump.S#L26). It takes two parameters:
 
-* address of protected mode entry point
-* address of `boot_params`
+* address of protected mode entry point 0 - địa chỉ của entry point trong chế độ protected mode
+* address of `boot_params` - địa chỉ tham số boot nhân
 
-Let's look inside `protected_mode_jump`. As I wrote above, you can find it in `arch/x86/boot/pmjump.S`. The first parameter will be in the `eax` register and second is in `edx`.
+Cùng xem bên trong hàm `protected_mode_jump`. Như đã viết ở trên, bạn có thể thấy nó ở trong file `arch/x86/boot/pmjump.S`. Tham số đầu tiên được đặt trong thanh ghi `eax` register, tham số thư 2 được đặt ở `edx`.
 
-First of all we put the address of `boot_params` in the `esi` register and the address of code segment register `cs` (0x1000) in `bx`. After this we shift `bx` by 4 bits and add the address of label `2` to it (we will have the physical address of label `2` in the `bx` after this) and jump to label `1`. Next we put data segment and task state segment in the `cs` and `di` registers with:
+Đầu tiên nhất, chúng ta đặt địa chỉ của `boot_params` vào thanh ghi `esi` register và địa chỉ thanh ghi chứa code segment `cs` (0x1000) vào `bx`. Sau bước này, dịch `bx` 4 bits và cộng địa chỉ của vị trí có nhãn là `2` vào nó ( chúng ta sẽ có địa chỉ  `2` trong thanh ghi `bx` sau bước này) rồi nhảy đến địa chỉ có nhãn `1`. Sau đó, chúng ta đặt data segment và task state segment tương ứng vào thanh ghi `cs` và `di`:
 
 ```assembly
 movw	$__BOOT_DS, %cx
 movw	$__BOOT_TSS, %di
 ```
 
-As you can read above `GDT_ENTRY_BOOT_CS` has index 2 and every GDT entry is 8 byte, so `CS` will be `2 * 8 = 16`, `__BOOT_DS` is 24 etc.
+Bạn đã đọc ở trên khi `GDT_ENTRY_BOOT_CS` có index là 2, và mỗi GDT entry có kích thước là 8 byte, vì thế `CS` sẽ là `2 * 8 = 16`, `__BOOT_DS` sẽ là 24 etc.
 
-Next we set the `PE` (Protection Enable) bit in the `CR0` control register:
+Tiếp theo, chúng ta sẽ set bit `PE` (Protection Enable) trong thanh ghi điều khiển `CR0`:
 
 ```assembly
 movl	%cr0, %edx
@@ -513,7 +513,7 @@ orb	$X86_CR0_PE, %dl
 movl	%edx, %cr0
 ```
 
-and make a long jump to protected mode:
+và thực hiện một `bước nhảy dài` sang protected mode:
 
 ```assembly
 	.byte	0x66, 0xea
@@ -521,20 +521,20 @@ and make a long jump to protected mode:
 	.word	__BOOT_CS
 ```
 
-where
-* `0x66` is the operand-size prefix which allows us to mix 16-bit and 32-bit code,
-* `0xea` - is the jump opcode,
-* `in_pm32` is the segment offset
-* `__BOOT_CS` is the code segment.
+trong đó,
+* `0x66` tiền tố của của hạng kích thước (operand-size prefix) cho phép chúng ta trộn code 16-bit và 32-bit,
+* `0xea` - là lệnh nhảy,
+* `in_pm32` là offset cho segment 
+* `__BOOT_CS` là code segment.
 
-After this we are finally in the protected mode:
+ Sau đoạn trên, chúng ta sẽ nằm trong protected mode:
 
 ```assembly
 .code32
 .section ".text32","ax"
 ```
 
-Let's look at the first steps in protected mode. First of all we set up the data segment with:
+Hay xem những bước đầu tiên trong protected mode. Đầu tiên nhất, chúng ta phải thiết lập data segment bằng:
 
 ```assembly
 movl	%ecx, %ds
@@ -544,7 +544,7 @@ movl	%ecx, %gs
 movl	%ecx, %ss
 ```
 
-If you paid attention, you can remember that we saved `$__BOOT_DS` in the `cx` register. Now we fill it with all segment registers besides `cs` (`cs` is already `__BOOT_CS`). Next we zero out all general purpose registers besides `eax` with:
+Nếu bạn để ý, bạn có thể nhớ ra rằng chúng ta đã lưu `$__BOOT_DS` trong thanh ghi `cx`. Giờ chúng ta sẽ điền giá trị đó cho tất cả các thanh ghi segment bên cạnh `cs` (`cs` thì chứa `__BOOT_CS` rồi). Tiếp theo, chúng ta phải gán về ZERO cho các thanh ghi mục đích chung - general purpose registers cạnh `eax` bằng đoạn mã:
 
 ```assembly
 xorl	%ecx, %ecx
@@ -554,20 +554,20 @@ xorl	%ebp, %ebp
 xorl	%edi, %edi
 ```
 
-And jump to the 32-bit entry point in the end:
+ Cuối cùng nhảy đến điểm đầu vào 32-bit (32-bit entry point):
 
 ```
 jmpl	*%eax
 ```
 
-Remember that `eax` contains the address of the 32-bit entry (we passed it as first parameter into `protected_mode_jump`).
+Nhớ rằng `eax` chứa địa chỉ của điểm đầu vào 32-bit (vì chúng ta đã truyền nó thông qua tham số đầu tiên của hàm `protected_mode_jump`).
 
-That's all. We're in the protected mode and stop at it's entry point. We will see what happens next in the next part.
+Tất cả chỉ có vậy. Chúng ta đã vào trong protected mode và đang ở điểm đầu vào (entry point) của nó. Chúng ta sẽ thấy chuyện gì xảy ra tiếp theo trong phần tiếp theo của Part này.
 
-Conclusion
+Kết luận
 --------------------------------------------------------------------------------
 
-This is the end of the third part about linux kernel insides. In next part, we will see first steps in the protected mode and transition into the [long mode](http://en.wikipedia.org/wiki/Long_mode).
+ Đây là đoạn cuối của phần ban trong loạt bài liên quan đến bên trong linux kernel. Trong phần tiếp theo, chúng ta sẽ xem sét các bước đầu tiên trong protected mode và cả việc chuyển sang [long mode](http://en.wikipedia.org/wiki/Long_mode) nữa.
 
 If you have any questions or suggestions write me a comment or ping me at [twitter](https://twitter.com/0xAX).
 
