@@ -21,7 +21,7 @@ Bản dịch ở các ngôn ngữ khác
   * [Spanish](https://github.com/leolas95/linux-insides)
   * [Russian](https://github.com/proninyaroslav/linux-insides-ru)
   * [Turkish](https://github.com/ayyucedemirbas/linux-insides_Turkish)
-  * [Vietnamese](https://github.com/minatu2d/linux-insides_vi)
+  * [Vietnamese](https://github.com/minatu2d/linux-insides-vi)
   
 Về giấy phép bản quyền
 -------------
