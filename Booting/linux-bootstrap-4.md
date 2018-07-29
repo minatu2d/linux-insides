@@ -329,7 +329,7 @@ Nói đơn giản, thì nhân Linux với cùng một cấu hình có thể boot
 KBUILD_CFLAGS += -fno-strict-aliasing -fPIC
 ```
 
-Khi bạn sử dụng code không phụ thuộc vị trí position-independent code, một địa chỉ sẽ được tính bằng cách cộng giá trị trường địa chỉ của câu lệnh và giá trị của program counter (PC). Chúng ta có thể load code kiểu như vậy bằng bất cứ địa chỉ nào. Đó lại tại sao tôi phải lấy địa chỉ vật lý thực của hàm `startup_32`. Nào, giờ chúng ta trở lại với phần code của nhân Linux. Mục tiêu của chúng ta là tính toán lại địa chỉ chỗ chúng ta đặt vị trí lại cho nhân khi giải nén. Cách tính địa chỉ này phụ thuộc vào giá trị cấu hình `CONFIG_RELOCATABLE`. Hãy xem phần code của nó:
+Khi bạn sử dụng code phụ thuộc vị trí position-independent code an address is obtained by adding the address field of the command and the value of the program counter. We can load code which uses such addressing from any address. That's why we had to get the real physical address of `startup_32`. Now let's get back to the Linux kernel code. Our current goal is to calculate an address where we can relocate the kernel for decompression. Calculation of this address depends on `CONFIG_RELOCATABLE` kernel configuration option. Let's look at the code:
 
 ```assembly
 #ifdef CONFIG_RELOCATABLE
@@ -347,7 +347,7 @@ Khi bạn sử dụng code không phụ thuộc vị trí position-independent c
 	addl	$z_extract_offset, %ebx
 ```
 
-Nhớ rằng, giá trị thanh ghi `ebp` chính là địa chỉ vật lý của nhãn `startup_32`. Nếu giá trị cấu hình nhân `CONFIG_RELOCATABLE` được bật, chúng ta sẽ đặt địa chỉ này vào thanh ghi `ebx`, dịch nó theo một số nguyên lần của `2MB`  và so sánh nó với giá trị địa chỉ `LOAD_PHYSICAL_ADDR`. Cái macro `LOAD_PHYSICAL_ADDR` được định nghĩa trong [arch/x86/include/asm/boot.h](https://github.com/torvalds/linux/blob/master/arch/x86/include/asm/boot.h) như sau:
+Remember that the value of the `ebp` register is the physical address of the `startup_32` label. If the `CONFIG_RELOCATABLE` kernel configuration option is enabled during kernel configuration, we put this address in the `ebx` register, align it to a multiple of `2MB` and compare it with the `LOAD_PHYSICAL_ADDR` value. The `LOAD_PHYSICAL_ADDR` macro is defined in the [arch/x86/include/asm/boot.h](https://github.com/torvalds/linux/blob/master/arch/x86/include/asm/boot.h) header file and it looks like this:
 
 ```C
 #define LOAD_PHYSICAL_ADDR ((CONFIG_PHYSICAL_START \
@@ -355,14 +355,14 @@ Nhớ rằng, giá trị thanh ghi `ebp` chính là địa chỉ vật lý của
 				& ~(CONFIG_PHYSICAL_ALIGN - 1))
 ```
 
-Như chúng ta thấy, nó đơn giản được mở rộng thành một phép tính toán trên giá trị `CONFIG_PHYSICAL_ALIGN`, chính là địa chỉ vật lý mà kernel được load vào. Sau khi so sánh `LOAD_PHYSICAL_ADDR` và giá trị thanh ghi `ebx`, chúng ta cộng thêm một offset tính từ `startup_32`, hay chính là nơi sẽ giải nén nhân. Nếu giá trị cấu hình nhân `CONFIG_RELOCATABLE` không được bật, chúng ta đơn giản là đặt địa chỉ được dùng để load nhân rồi cộng thêm `z_extract_offset` vào.
+As we can see it just expands to the aligned `CONFIG_PHYSICAL_ALIGN` value which represents the physical address of where to load the kernel. After comparison of the `LOAD_PHYSICAL_ADDR` and value of the `ebx` register, we add the offset from the `startup_32` where to decompress the compressed kernel image. If the `CONFIG_RELOCATABLE` option is not enabled during kernel configuration, we just put the default address where to load kernel and add `z_extract_offset` to it.
 
-Sau tất cả các bước tính toán trên, chúng ta sẽ có trong thanh ghi `ebp` chứa địa chỉ nơi chúng ta đã load nhân và thanh ghi `ebx` chứa địa chỉ nhân sau khi nó được giải nén.
+After all of these calculations we will have `ebp` which contains the address where we loaded it and `ebx` set to the address of where kernel will be moved after decompression.
 
-Các chuẩn bị trước khi vào long mode
+Preparation before entering long mode
 --------------------------------------------------------------------------------
 
-Khi chúng ta có địa chỉ nơi sử dụng để đặt vị trí của ảnh nén của nhân, chúng ta cần thực hiện bước cuối cùng trước khi chuyển sang chế độ 64-bit. Đầu tiên, chúng ta cần cập nhật [Global Descriptor Table](https://en.wikipedia.org/wiki/Global_Descriptor_Table):
+When we have the base address where we will relocate the compressed kernel image, we need to do one last step before we can transition to 64-bit mode. First we need to update the [Global Descriptor Table](https://en.wikipedia.org/wiki/Global_Descriptor_Table):
 
 ```assembly
 	leal	gdt(%ebp), %eax
@@ -370,7 +370,7 @@ Khi chúng ta có địa chỉ nơi sử dụng để đặt vị trí của ả
 	lgdt	gdt(%ebp)
 ```
 
- Ở đây, chúng ta cần đặt địa chỉ base từ thanh ghi `ebp` và `gdt` offset vào thanh ghi `eax`. Tiếp theo, chúng ta sẽ thêm địa chỉ này vào thanh ghi `ebp` với offset bằng `gdt+2` và load `Global Descriptor Table` bằng lệnh `lgdt` . Để hiểu cái ma thuật với `gdt` offsets này chúng ta cần xem định nghĩa về `Global Descriptor Table`. Chúng ta có thể thấy định nghĩa của nó ở cùng file source code [file](https://github.com/torvalds/linux/blob/master/arch/x86/boot/compressed/head_64.S):
+Here we put the base address from `ebp` register with `gdt` offset into the `eax` register. Next we put this address into `ebp` register with offset `gdt+2` and load the `Global Descriptor Table` with the `lgdt` instruction. To understand the magic with `gdt` offsets we need to look at the definition of the `Global Descriptor Table`. We can find its definition in the same source code [file](https://github.com/torvalds/linux/blob/master/arch/x86/boot/compressed/head_64.S):
 
 ```assembly
 	.data
@@ -386,14 +386,14 @@ gdt:
 gdt_end:
 ```
 
-Chúng ta có thể thấy rằng, nó được đặt ở `.data` section và chứa 5 descriptor: `null` descriptor, kernel code segment, kernel data segment và 2 task descriptors. Chúng ta đã load `Global Descriptor Table` vào từ [part](https://github.com/0xAX/linux-insides/blob/master/Booting/linux-bootstrap-3.md) trước  rồi, giờ làm gần như giống như thế ở đây, nhưng các descriptor sẽ có `CS.L = 1` and `CS.D = 0` để chạy trong `64` bit mode. Như chúng ta thấy, định nghĩa của `gdt` bắt đầu bằng 2 bytes: `gdt_end - gdt` cái biểu diễn byte cuối cùng của bảng `gdt` table hay giới hạn của table. Bốn bytes sau đó chứa địa chỉ `gdt`. Hãy nhớ rằng `Global Descriptor Table` được lưu dạng `48-bits GDTR` chứa 2 phần sau:
+We can see that it is located in the `.data` section and contains five descriptors: `null` descriptor, kernel code segment, kernel data segment and two task descriptors. We already loaded the `Global Descriptor Table` in the previous [part](https://github.com/0xAX/linux-insides/blob/master/Booting/linux-bootstrap-3.md), and now we're doing almost the same here, but descriptors with `CS.L = 1` and `CS.D = 0` for execution in `64` bit mode. As we can see, the definition of the `gdt` starts from two bytes: `gdt_end - gdt` which represents last byte in the `gdt` table or table limit. The next four bytes contains base address of the `gdt`. Remember that the `Global Descriptor Table` is stored in the `48-bits GDTR` which consists of two parts:
 
 * size(16-bit) of global descriptor table;
 * address(32-bit) of the global descriptor table.
 
-Vì thế, chúng ta sẽ đặt địa chỉ của `gdt` vào thanh ghi `eax` và đặt chúng vào `.long gdt` hoặc `gdt+2` trong code asm của chúng ta. Từ thời điểm này, chúng ta đã cấu trúc cho thanh ghi `GDTR`, giờ có thể load `Global Descriptor Table` bằng lệnh asm `lgtd`.
+So, we put address of the `gdt` to the `eax` register and then we put it to the `.long	gdt` or `gdt+2` in our assembly code. From now we have formed structure for the `GDTR` register and can load the `Global Descriptor Table` with the `lgtd` instruction.
 
-Sau khi chúng ta load `Global Descriptor Table`, chúng ta phải bật [PAE](http://en.wikipedia.org/wiki/Physical_Address_Extension) và đặt giá trị ở thanh ghi `cr4` vào thanh ghi `eax`, thiết lập 5 bit rồi load vào thanh ghi `cr4`:
+After we have loaded the `Global Descriptor Table`, we must enable [PAE](http://en.wikipedia.org/wiki/Physical_Address_Extension) mode by putting the value of the `cr4` register into `eax`, setting 5 bit in it and loading it again into `cr4`:
 
 ```assembly
 	movl	%cr4, %eax
@@ -401,49 +401,49 @@ Sau khi chúng ta load `Global Descriptor Table`, chúng ta phải bật [PAE](h
 	movl	%eax, %cr4
 ```
 
-Đến đây, chúng ta cũng gần như hoàn tất các bước chuẩn bị để vào 64-bit mode rồi. Bước cuối cùng là tạo các bảng trang - page tables, nhưng trước đó, có một vài thông tin về cái long mode.
+Now we are almost finished with all preparations before we can move into 64-bit mode. The last step is to build page tables, but before that, here is some information about long mode.
 
 Long mode
 --------------------------------------------------------------------------------
 
-[Long mode](https://en.wikipedia.org/wiki/Long_mode) là native mode của các bộ xử lý [x86_64](https://en.wikipedia.org/wiki/X86-64). Đầu tiên hãy xem sự khác nhau giữa `x86_64` và `x86`.
+[Long mode](https://en.wikipedia.org/wiki/Long_mode) is the native mode for [x86_64](https://en.wikipedia.org/wiki/X86-64) processors. First let's look at some differences between `x86_64` and the `x86`.
 
-`64-bit` cung cấp các tính năng sau:
+The `64-bit` mode provides features such as:
 
-* 8 thanh ghi mới cho sử dụng chung `r8` đến `r15` được thêm vào khi ở 64-bit;
-* Con trỏ lệnh 64-bit - 64-bit instruction pointer - `RIP`;
-* Thêm chế độ hoạt động mới - Long mode;
-* Địa chỉ và các toán hạng 64-bit;
-* Đánh địa chỉ tương đối RIP - RIP Relative Addressing (chúng ta sẽ thấy một vài ví dụ ở phần sau).
+* New 8 general purpose registers from `r8` to `r15` + all general purpose registers are 64-bit now;
+* 64-bit instruction pointer - `RIP`;
+* New operating mode - Long mode;
+* 64-Bit Addresses and Operands;
+* RIP Relative Addressing (we will see an example of it in the next parts).
 
-Long mode là mở rộng của chế độ protected mode hiện có. Nó bao gồm 2 sub-modes:
+Long mode is an extension of legacy protected mode. It consists of two sub-modes:
 
-* mode 64-bit -  64-bit mode;
-* mode tương thích - compatibility mode.
+* 64-bit mode;
+* compatibility mode.
 
-Để chuyển sang mode `64-bit`, chúng ta cần thêm những thứ sau:
+To switch into `64-bit` mode we need to do following things:
 
-* Bật [PAE](https://en.wikipedia.org/wiki/Physical_Address_Extension);
-* Tạo bảng trang (page tables) và load địa chỉ của trang đầu tiên vào thanh ghi `cr3`;
-* Bật `EFER.LME`;
-* Bật phân trang - paging.
+* Enable [PAE](https://en.wikipedia.org/wiki/Physical_Address_Extension);
+* Build page tables and load the address of the top level page table into the `cr3` register;
+* Enable `EFER.LME`;
+* Enable paging.
 
-Chúng ta đã bật `PAE` bắt các set bit `PAE` trong thanh ghi điều khiển `cr4` rồi. Việc tiếp theo là tạo cấu trúc phục vụ việc phân trang - [paging](https://en.wikipedia.org/wiki/Paging). Chúng ta sẽ thấy ở chương sau.
+We already enabled `PAE` by setting the `PAE` bit in the `cr4` control register. Our next goal is to build the structure for [paging](https://en.wikipedia.org/wiki/Paging). We will see this in next paragraph.
 
-Khởi tạo bảng trang ban đầu - Early page table initialization
+Early page table initialization
 --------------------------------------------------------------------------------
 
-Như vậy, chúng ta đã biết rằng, trước khi chuyển sang mode `64-bit`, chúng ta cần tạo bảng trang (page tables), vì thế, cùng nhau xem việc tạo bảng trang boot `4G` lúc đầu.
+So, we already know that before we can move into `64-bit` mode, we need to build page tables, so, let's look at the building of early `4G` boot page tables.
 
-**NOTE: Tôi sẽ không nói lại lý thuyết về bộ nhớ ảo ở đây. Nếu bạn muốn biết thêm về nó, hãy xem các link ở cuối bài.**
+**NOTE: I will not describe the theory of virtual memory here. If you need to know more about it, see links at the end of this part.**
 
-Nhân Linux sử dụng phân trang `4-level`, và nói chung chúng ta sẽ tạo 6 bảng tables:
+The Linux kernel uses `4-level` paging, and we generally build 6 page tables:
 
-* Một bảng `PML4` hay `Page Map Level 4` với một entry;
-* Một bảng `PDP` hay `Page Directory Pointer` với bốn entry;
-* Bốn bảng thư mục trang - Page Directory với tổng cộng `2048` entry.
+* One `PML4` or `Page Map Level 4` table with one entry;
+* One `PDP` or `Page Directory Pointer` table with four entries;
+* Four Page Directory tables with a total of `2048` entries.
 
-Cùng xem chúng được tạo ra trong code như thế nào. Đầu tiên, xóa buffer dành cho các bảng trang trong bộ nhớ. Mỗi bảng sẽ có `4096` bytes, vì thế chúng ta cần xóa một buffer kích thước `24` kilobyte:
+Let's look at the implementation of this. First of all we clear the buffer for the page tables in memory. Every table is `4096` bytes, so we need clear `24` kilobyte buffer:
 
 ```assembly
 	leal	pgtable(%ebx), %edi
@@ -452,9 +452,9 @@ Cùng xem chúng được tạo ra trong code như thế nào. Đầu tiên, xó
 	rep	stosl
 ```
 
-Chúng ta đặt giá trị tổng gồm địa chỉ của `pgtable` và `ebx` (nhớ rằng `ebx` chứa địa chỉ để đặt lại kernel sau khi giải nén) vào thanh ghi `edi`, xóa thanh ghi `eax` và gán giá trị thanh ghi `ecx` là `6144`. Lệnh asm `rep stosl` sẽ viết giá trị ở `eax` vào `edi`, tăng giá trị của thanh ghi `edi` lên `4` và giảm giá trị của thanh ghi `ecx` đi `1`. Lặp đi lặp lại thao tác này chừng nào giá trị ở thanh ghi `ecx` còn lơn hơn zero. Đó là tại sao lại đưa giá trị `6144` vào `ecx`.
+We put the address of `pgtable` plus `ebx` (remember that `ebx` contains the address to relocate the kernel for decompression) in the `edi` register, clear the `eax` register and set the `ecx` register to `6144`. The `rep stosl` instruction will write the value of the `eax` to `edi`, increase value of the `edi` register by `4` and decrease the value of the `ecx` register by `1`. This operation will be repeated while the value of the `ecx` register is greater than zero. That's why we put `6144` in `ecx`.
 
-`pgtable` được định nghĩa ở cuối file [arch/x86/boot/compressed/head_64.S](https://github.com/torvalds/linux/blob/master/arch/x86/boot/compressed/head_64.S):
+`pgtable` is defined at the end of [arch/x86/boot/compressed/head_64.S](https://github.com/torvalds/linux/blob/master/arch/x86/boot/compressed/head_64.S) assembly file and is:
 
 ```assembly
 	.section ".pgtable","a",@nobits
@@ -463,9 +463,9 @@ pgtable:
 	.fill 6*4096, 1, 0
 ```
 
-Như chúng ta có thể thấy, nó sẽ nằm ở section `.pgtable` và kích thước của nó là `24` kilobytes.
+As we can see, it is located in the `.pgtable` section and its size is `24` kilobytes.
 
-Sau khi có được buffer cho cấu trúc `pgtable`, chúng ta có thể tạo bảng page cao nhất  - `PML4` - bằng:
+After we have got buffer for the `pgtable` structure, we can start to build the top level page table - `PML4` - with:
 
 ```assembly
 	leal	pgtable + 0(%ebx), %edi
@@ -473,9 +473,9 @@ Sau khi có được buffer cho cấu trúc `pgtable`, chúng ta có thể tạo
 	movl	%eax, 0(%edi)
 ```
 
-Một lần nữa, chúng ta đặt địa chỉ tương đối của `pgtable` đến `ebx` hay chính là địa chỉ tương đối đến nhãn `startup_32` vào thanh ghi `edi`. Sau đó đặt địa chỉ này cộng thêm offset `0x1007` vào thanh ghi `eax`. Giá trị `0x1007` tức là `4096` bytes chính là kích thước của `PML4` cộng `7`. Số `7` biểu diễn cờ của `PML4` entry. Trong trường hợp của chúng ta, cờ này là `PRESENT+RW+USER`. Cuối cùng, chúng ta ghi địa chỉ đầu của  `PDP` entry đầu tiên vào `PML4`.
+Here again, we put the address of the `pgtable` relative to `ebx` or in other words relative to address of the `startup_32` to the `edi` register. Next we put this address with offset `0x1007` in the `eax` register. The `0x1007` is `4096` bytes which is the size of the `PML4` plus `7`. The `7` here represents flags of the `PML4` entry. In our case, these flags are `PRESENT+RW+USER`. In the end we just write first the address of the first `PDP` entry to the `PML4`.
 
-Bước tiếp theo, chúng ta sẽ tạo 4 entry cho `Page Directory` trong bảng `Page Directory Pointer` với giá trị cờ tương tự trên `PRESENT+RW+USE`:
+In the next step we will build four `Page Directory` entries in the `Page Directory Pointer` table with the same `PRESENT+RW+USE` flags:
 
 ```assembly
 	leal	pgtable + 0x1000(%ebx), %edi
@@ -488,7 +488,7 @@ Bước tiếp theo, chúng ta sẽ tạo 4 entry cho `Page Directory` trong b�
 	jnz	1b
 ```
 
-Chúng ta đặt địa chỉ base của page directory pointer chính là vị trí có offset `4096` hay `0x1000` từ địa chỉ bảng `pgtable` vào thanh ghi `edi` và địa chỉ của page directory pointer entry đầu tiên vào thanh ghi `eax`. Đặt `4` vào thanh ghi `ecx`, nó sẽ trở thành biến đến trong vòng lặp dưới đây và viết địa chỉ của phần tử đầu tiên trong bảng page directory pointer table vào `edi` register. Sau bước này, `edi` sẽ chứa địa chỉ của page directory pointer entry đầu tiên, với giá trị cờ là `0x7`. Sau đó, chúng ta sẽ tính địa chỉ các các entries tiếp theo của bảng page directory pointer, mỗi cái `8` bytes, và viết địa chỉ của chúng vào `eax`. Bước cuối cùng trong việc tạo cấu trúc phân trang là tạo bảng trang có `2048` mỗi page là `2-MByte`:
+We put the base address of the page directory pointer which is `4096` or `0x1000` offset from the `pgtable` table in `edi` and the address of the first page directory pointer entry in `eax` register. Put `4` in the `ecx` register, it will be a counter in the following loop and write the address of the first page directory pointer table entry to the `edi` register. After this `edi` will contain the address of the first page directory pointer entry with flags `0x7`. Next we just calculate the address of following page directory pointer entries where each entry is `8` bytes, and write their addresses to `eax`. The last step of building paging structure is the building of the `2048` page table entries with `2-MByte` pages:
 
 ```assembly
 	leal	pgtable + 0x2000(%ebx), %edi
@@ -501,26 +501,26 @@ Chúng ta đặt địa chỉ base của page directory pointer chính là vị 
 	jnz	1b
 ```
 
-Ở đây, chúng ta làm gần như giống hệ vị dụ trước, tất cả các entries được gán cờ - `$0x00000183` - `PRESENT + WRITE + MBZ`. Cuối cùng chúng ta có `2048` pages với kích thước `2-MByte` mỗi page:
+Here we do almost the same as in the previous example, all entries will be with flags - `$0x00000183` - `PRESENT + WRITE + MBZ`. In the end we will have `2048` pages with `2-MByte` page or:
 
 ```python
 >>> 2048 * 0x00200000
 4294967296
 ```
 
-Tức là bảng trang có kích thước `4G`. Ban đầu chúng ta tạo một cấu trúc bảng trang cho phép biểu diễn `4` gigabytes bộ nhớ, giờ làm thế nào chúng ta đặt địa chỉ của các bảng high-level page table - `PML4` - trong thanh ghi điều khiển `cr3`:
+`4G` page table. We just finished to build our early page table structure which maps `4` gigabytes of memory and now we can put the address of the high-level page table - `PML4` - in `cr3` control register:
 
 ```assembly
 	leal	pgtable(%ebx), %eax
 	movl	%eax, %cr3
 ```
 
-Đó là tất cả. Và tất cả các bước chuẩn bị đã kết thúc và giờ chúng ta sẽ xem quá trình chuyển sang long mode.
+That's all. All preparation are finished and now we can see transition to the long mode.
 
-Chuyển sang 64-bit mode
+Transition to the 64-bit mode
 --------------------------------------------------------------------------------
 
-Đầu tiên nhất, chúng ta cần set cờ `EFER.LME` trong [MSR](http://en.wikipedia.org/wiki/Model-specific_register) về giá trị `0xC0000080`:
+First of all we need to set the `EFER.LME` flag in the [MSR](http://en.wikipedia.org/wiki/Model-specific_register) to `0xC0000080`:
 
 ```assembly
 	movl	$MSR_EFER, %ecx
@@ -529,31 +529,31 @@ Chuyển sang 64-bit mode
 	wrmsr
 ```
 
-Ở đây, chúng ta đặt giá trị cờ `MSR_EFER` (được định nghĩa trong [arch/x86/include/uapi/asm/msr-index.h](https://github.com/torvalds/linux/blob/master/arch/x86/include/uapi/asm/msr-index.h#L7)) vào thanh ghi `ecx` và gọi lệnh asm `rdmsr`, lệnh này sẽ đọc thanh ghi [MSR](http://en.wikipedia.org/wiki/Model-specific_register). Sau khi lệnh `rdmsr` thực hiện, chúng ta sẽ có kết quả nằm ở `edx:eax`, giá trị này phụ thuộc vào giá trị `ecx`. Chúng ta sau đó kiểm tra giá trị bit `EFER_LME` bằng câu lệnh `btsl` và ghi dữ liệu từ thanh ghi `eax` vào thanh ghi `MSR` băng câu lệnh `wrmsr`.
+Here we put the `MSR_EFER` flag (which is defined in [arch/x86/include/uapi/asm/msr-index.h](https://github.com/torvalds/linux/blob/master/arch/x86/include/uapi/asm/msr-index.h#L7)) in the `ecx` register and call `rdmsr` instruction which reads the [MSR](http://en.wikipedia.org/wiki/Model-specific_register) register. After `rdmsr` executes, we will have the resulting data in `edx:eax` which depends on the `ecx` value. We check the `EFER_LME` bit with the `btsl` instruction and write data from `eax` to the `MSR` register with the `wrmsr` instruction.
 
-Bước tiếp theo, chúng ta đặt code segment của nhân vào stack (cái chúng ta đã định nghĩa trong GDT) và đặt giá trị của hàm `startup_64` trong thanh ghi `eax`.
+In the next step we push the address of the kernel segment code to the stack (we defined it in the GDT) and put the address of the `startup_64` routine in `eax`.
 
 ```assembly
 	pushl	$__KERNEL_CS
 	leal	startup_64(%ebp), %eax
 ```
 
-Sau bước này, chúng ta sẽ đặt địa chỉ vào stack và bật phân trang bằng cách thiết lập bit `PG` và `PE` trong thanh ghi `cr0` register:
+After this we push this address to the stack and enable paging by setting `PG` and `PE` bits in the `cr0` register:
 
 ```assembly
 	movl	$(X86_CR0_PG | X86_CR0_PE), %eax
 	movl	%eax, %cr0
 ```
 
-và thực hiện lệnh:
+and execute:
 
 ```assembly
 lret
 ```
 
-Nhớ rằng, chúng ta đã đẩy địa chỉ của hàm `startup_64` vào stack ở bước trước, và sau lệnh `lret`, CPU sẽ lấy địa chỉ đó và nhảy đến.
+instruction. Remember that we pushed the address of the `startup_64` function to the stack in the previous step, and after the `lret` instruction, the CPU extracts the address of it and jumps there.
 
-Sau tất cả những bước này, chúng ta cuối cùng đã nằm trong 64-bit mode:
+After all of these steps we're finally in 64-bit mode:
 
 ```assembly
 	.code64
@@ -564,14 +564,14 @@ ENTRY(startup_64)
 ....
 ```
 
-Đó là tất cả!
+That's all!
 
-Kết luận
+Conclusion
 --------------------------------------------------------------------------------
 
-Đây là đoạn cuối của phần 4 trong chương nói về quá trình boot nhân Linux. Nếu bạn có câu hỏi hoặc gọi ý nào, ping tôi [0xAX](https://twitter.com/0xAX) trên twitter, hoặc gửi [email](anotherworldofworld@gmail.com) hoặc đơn giản là tạo một [issue](https://github.com/0xAX/linux-insides/issues/new).
+This is the end of the fourth part linux kernel booting process. If you have questions or suggestions, ping me in twitter [0xAX](https://twitter.com/0xAX), drop me [email](anotherworldofworld@gmail.com) or just create an [issue](https://github.com/0xAX/linux-insides/issues/new).
 
-Trong phần tiếp theo, chúng ta sẽ xem quá trình giải nén nhân và sau đó ra sao.
+In the next part we will see kernel decompression and many more.
 
 **Please note that English is not my first language and I am really sorry for any inconvenience. If you find any mistakes please send me PR to [linux-insides](https://github.com/0xAX/linux-internals).**
 
