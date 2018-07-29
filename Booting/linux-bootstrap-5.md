@@ -1,15 +1,15 @@
-Kernel booting process. Part 5.
+Quá trình boot nhân - Kernel booting process. Part 5.
 ================================================================================
 
-Kernel decompression
+Giải nén nhân
 --------------------------------------------------------------------------------
 
-This is the fifth part of the `Kernel booting process` series. We saw transition to the 64-bit mode in the previous [part](https://github.com/0xAX/linux-insides/blob/master/Booting/linux-bootstrap-4.md#transition-to-the-long-mode) and we will continue from this point in this part. We will see the last steps before we jump to the kernel code as preparation for kernel decompression, relocation and directly kernel decompression. So... let's start to dive in the kernel code again.
+Đây là phần năm của series `Quá trình boot nhân`. Chúng ta đã xem quá trình chuyển sang chế độ 64-bit mode ở phần trước [part](https://github.com/0xAX/linux-insides/blob/master/Booting/linux-bootstrap-4.md#transition-to-the-long-mode), chúng ta sẽ tiếp tục từ chỗ đó trong phần này. Chúng ta sẽ xem bước cuối cùng trước khi chúng ta nhảy sang sang phần code của nhân như chuẩn bị cho việc giải nén nhân, đặt lại vị trí và trực tiếp giải nén nhân. Nào hãy xem code nhân một lần nữa.
 
-Preparation before kernel decompression
+Chuẩn bị trước khi giải nén nhân
 --------------------------------------------------------------------------------
 
-We stopped right before the jump on the 64-bit entry point - `startup_64` which is located in the [arch/x86/boot/compressed/head_64.S](https://github.com/torvalds/linux/blob/master/arch/x86/boot/compressed/head_64.S) source code file. We already saw the jump to the `startup_64` in the `startup_32`:
+Chúng ta đã dừng lại ngay chỗ điểm đầu vào của chế độ 64-bit - `startup_64`, mà source của nó nằm ở [arch/x86/boot/compressed/head_64.S](https://github.com/torvalds/linux/blob/master/arch/x86/boot/compressed/head_64.S). Và chúng ta đã nhảy vào `startup_64` từ trong `startup_32`:
 
 ```assembly
 	pushl	$__KERNEL_CS
@@ -24,7 +24,7 @@ We stopped right before the jump on the 64-bit entry point - `startup_64` which 
 	lret
 ```
 
-in the previous part, `startup_64` starts to work. Since we loaded the new Global Descriptor Table and there was CPU transition in other mode (64-bit mode in our case), we can see the setup of the data segments:
+trong phần trước, `startup_64` sẽ bắt đầu làm việc. Vì chúng ta đã load địa chỉ của bảng Global Descriptor Table mới và đã chuyển CPU sang một mode khác ( đó là 64-bit mode), chúng ta sẽ xem thiết lập cả các data segments:
 
 ```assembly
 	.code64
@@ -38,9 +38,9 @@ ENTRY(startup_64)
 	movl	%eax, %gs
 ```
 
-in the beginning of the `startup_64`. All segment registers besides `cs` now point to the `ds` which is `0x18` (if you don't understand why it is `0x18`, read the previous part).
+trong đoạn đầu của `startup_64`. Tất cả các thanh ghi segment bên cạnh `cs` giờ chỉ vào `ds`, hay có giá trị `0x18` (nếu bạn không biết tại sao lại là `0x18`, hãy đọc lại phần trước).
 
-The next step is computation of difference between where the kernel was compiled and where it was loaded:
+Bước tiếp theo là tính toán sự khác nhau giữa địa chỉ khi nhân được biên dịch và khi được load:
 
 ```assembly
 #ifdef CONFIG_RELOCATABLE
@@ -58,9 +58,9 @@ The next step is computation of difference between where the kernel was compiled
 	leaq	z_extract_offset(%rbp), %rbx
 ```
 
-`rbp` contains the decompressed kernel start address and after this code executes `rbx` register will contain address to relocate the kernel code for decompression. We already saw code like this in the `startup_32` ( you can read about it in the previous part - [Calculate relocation address](https://github.com/0xAX/linux-insides/blob/master/Booting/linux-bootstrap-4.md#calculate-relocation-address)), but we need to do this calculation again because the bootloader can use 64-bit boot protocol and `startup_32` just will not be executed in this case.
+`rbp` chứa địa chỉ bắt đầu của nhân sau khi nó được giải nén và sau khi đoạn code này được chạy, thanh ghi `rbx` sẽ chứa địa chỉ để đặt lại vị trí cho code nhân sau khi nó được giải nén. Chúng ta đã thấy đoạn code tương tự như này ở trong `startup_32` rồi (bạn có thể đọc về nó ở phần trước - [Calculate relocation address](https://github.com/0xAX/linux-insides/blob/master/Booting/linux-bootstrap-4.md#calculate-relocation-address)), nhưng chúng ta cần thực hiện tính toán lại một lần nữa vì boot loader sử dụng giao thức boot 64-bit và `startup_32` sẽ không chạy trong trường hợp này.
 
-In the next step we can see setup of the stack pointer and resetting of the flags register:
+Ở bước sau đây, chúng ta có thể thấy phần thiết lập stack pointer và phần reset các thanh ghi cờ flags:
 
 ```assembly
 	leaq	boot_stack_end(%rbx), %rsp
@@ -69,7 +69,7 @@ In the next step we can see setup of the stack pointer and resetting of the flag
 	popfq
 ```
 
-As you can see above, the `rbx` register contains the start address of the kernel decompressor code and we just put this address with `boot_stack_end` offset to the `rsp` register which represents pointer to the top of the stack. After this step, the stack will be correct. You can find definition of the `boot_stack_end` in the end of [arch/x86/boot/compressed/head_64.S](https://github.com/torvalds/linux/blob/master/arch/x86/boot/compressed/head_64.S) assembly source code file:
+Bạn có thể thấy ở trên, thanh ghi `rbx` chứa địa chỉ bắt đầu của phần code chương trình giải nén nhân và chúng ta đơn giản đặt địa chỉ này với offset `boot_stack_end` vào thanh ghi `rsp`, cái biểu diễn con trỏ tới đỉnh stack. Sau bước này, stack sẽ là coi như là đúng. Bạn có thể tìm định nghĩa của `boot_stack_end` trong file [arch/x86/boot/compressed/head_64.S](https://github.com/torvalds/linux/blob/master/arch/x86/boot/compressed/head_64.S):
 
 ```assembly
 	.bss
@@ -81,9 +81,9 @@ boot_stack:
 boot_stack_end:
 ```
 
-It located in the end of the `.bss` section, right before the `.pgtable`. If you will look into [arch/x86/boot/compressed/vmlinux.lds.S](https://github.com/torvalds/linux/blob/master/arch/x86/boot/compressed/vmlinux.lds.S) linker script, you will find  Definition of the `.bss` and `.pgtable` there.
+Nó được đặt ở đoạn cuối section `.bss`, ngay trước `.pgtable`. Nếu bạn nhìn vào file script cho linker [arch/x86/boot/compressed/vmlinux.lds.S](https://github.com/torvalds/linux/blob/master/arch/x86/boot/compressed/vmlinux.lds.S), bạn sẽ thấy định nghĩa của `.bss` và `.pgtable` ở đó.
 
-As we set the stack, now we can copy the compressed kernel to the address that we got above, when we calculated the relocation address of the decompressed kernel. Before details, let's look at this assembly code:
+Khi đã thiết lập stack rồi, giờ chúng ta có thể copy nhân bị nén vào địa chỉ đã có được ở trên, khi chúng ta tính toán được địa chỉ relocation của nhân khi được giải nén. Trước khi vào chi tiết, hãy cùng nhìn vào file assembly sau:
 
 ```assembly
 	pushq	%rsi
@@ -97,9 +97,13 @@ As we set the stack, now we can copy the compressed kernel to the address that w
 	popq	%rsi
 ```
 
-First of all we push `rsi` to the stack. We need preserve the value of `rsi`, because this register now stores a pointer to the `boot_params` which is real mode structure that contains booting related data (you must remember this structure, we filled it in the start of kernel setup). In the end of this code we'll restore the pointer to the `boot_params` into `rsi` again. 
+Đầu tiên nhất, chúng ta đưa giá trị `rsi` vào stack. Chúng ta cần giữ lại giá trị `rsi`, bởi vì thanh ghi này bây giờ lưu một con trỏ, trỏ đến `boot_params` là một cấu trúc trong real mode, chứa thông tin liên quan đến việc booting (bạn nhớ cấu trúc này chứ, chúng ta tạo nó ở trong phần đầu của code setup nhân). Trong phần cuối của đoạn code này, chúng ta sẽ phục hồi giá trị con trỏ trỏ đến `boot_params` vào thanh ghi `rsi` lại. 
 
-The next two `leaq` instructions calculates effective addresses of the `rip` and `rbx` with `_bss - 8` offset and put it to the `rsi` and `rdi`. Why do we calculate these addresses? Actually the compressed kernel image is located between this copying code (from `startup_32` to the current code) and the decompression code. You can verify this by looking at the linker script - [arch/x86/boot/compressed/vmlinux.lds.S](https://github.com/torvalds/linux/blob/master/arch/x86/boot/compressed/vmlinux.lds.S):
+Hai lệnh asm `leaq` tiếp theo sẽ tính toán địa chỉ hợp lệ của `rip` và `rbx`
+với offset `_bss - 8` và đặt giá trị tương ứng vào thanh ghi `rsi` và `rdi`.
+Tại sao chúng ta lại tính toán những địa chỉ này? Thực sự thì nhân nén được
+đặt giữa code copy và (từ hàm `startup_32` đến code hiện tại) và nhân sau khi
+giả nén. Bạn có thể xác nhận điều này bằng cách nhìn vào script của linker - [arch/x86/boot/compressed/vmlinux.lds.S](https://github.com/torvalds/linux/blob/master/arch/x86/boot/compressed/vmlinux.lds.S):
 
 ```
 	. = 0;
@@ -119,7 +123,8 @@ The next two `leaq` instructions calculates effective addresses of the `rip` and
 	}
 ```
 
-Note that `.head.text` section contains `startup_32`. You may remember it from the previous part:
+Chú ý rằng, section `.head.text` chứa `startup_32`. Bạn có thể xem lại phần
+trước để chắc chắn:
 
 ```assembly
 	__HEAD
@@ -130,7 +135,7 @@ ENTRY(startup_32)
 ...
 ```
 
-The `.text` section contains decompression code:
+Section `.text` chứa code giải nén:
 
 ```assembly
 	.text
@@ -144,21 +149,31 @@ relocated:
 ...
 ```
 
-And `.rodata..compressed` contains the compressed kernel image. So `rsi` will contain the absolute address of `_bss - 8`, and `rdi` will contain the relocation relative address of `_bss - 8`. As we store these addresses in registers, we put the address of `_bss` in the `rcx` register. As you can see in the `vmlinux.lds.S` linker script, it's located at the end of all sections with the setup/kernel code. Now we can start to copy data from `rsi` to `rdi`, `8` bytes at the time, with the `movsq` instruction. 
+Và `.rodata..compressed` chứa nhân nén. Vì thế `rsi` sẽ chứa địa chỉ tuyệt đối
+của `_bss - 8`, và `rdi` địa chỉ tương đối sau khi relocation `_bss - 8`. Khi
+chúng ta lưu những địa chỉ này trong nhiều thanh ghi, chúng ta sẽ đặt địa của
+`_bss` vào thanh ghi `rcx`. Bạn có thể thấy trong script linker
+`vmlinux.lds.S`, nó đặt ở cuối của tất cả các sessions với code thiết lập
+nhân. Giờ bạn có thể copy từ `rsi` sang `rdi`, mỗi lần `8`, bằng lệnh `movsq`. 
 
-Note that there is an `std` instruction before data copying: it sets the `DF` flag, which means that `rsi` and `rdi` will be decremented. In other words, we will copy the bytes backwards. At the end, we clear the `DF` flag with the `cld` instruction, and restore `boot_params` structure to `rsi`.
+Chú ý rằng, có một lệnh `std` trước khi copy dữ liệu: nó thiết lập cờ `DF`, nó
+mang ý nghĩa rằng giá trị `rsi` và `rdi` sẽ giảm dần. Nói cách khác, chúng ta
+sẽ copy các byte theo chiều ngược lại. Ở cuối, chúng ta xóa cờ `DF` bằng lệnh
+`cld`, và phục hồi giá trị cấu trúc `boot_params` vào `rsi`.
 
-Now we have the address of the `.text` section address after relocation, and we can jump to it:
+Giờ chúng ta có địa chỉ của section `.text` sau khi relocation, và chúng ta có
+thể nhảy đến đó:
 
 ```assembly
 	leaq	relocated(%rbx), %rax
 	jmp	*%rax
 ```
 
-Last preparation before kernel decompression
+Chuẩn bị cuối cùng trước khi giải nén nhân
 --------------------------------------------------------------------------------
 
-In the previous paragraph we saw that the `.text` section starts with the `relocated` label. The first thing it does is clearing the `bss` section with:
+Ở ngay đoạn trước, chúng ta đã thấy rằng section `.text` bắt đầu bằng nhãn
+`relocated`. Đầu tiên, no sẽ xóa section `bss` bằng:
 
 ```assembly
 	xorl	%eax, %eax
